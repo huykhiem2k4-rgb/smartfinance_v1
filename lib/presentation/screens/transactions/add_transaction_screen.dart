@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import '../../providers/app_provider.dart';
 import '../../../data/models/transaction_model.dart';
 import '../../../core/theme/app_theme.dart';
@@ -183,26 +184,35 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       setState(() => _saving = false);
       return;
     }
-    final t = TransactionModel(
-      id: const Uuid().v4(),
-      title: _titleCtrl.text.trim(),
-      amount: amount,
-      type: _type,
-      category: _category,
-      description: _descCtrl.text.trim().isEmpty ? null : _descCtrl.text.trim(),
-      date: _date,
-      imagePath: _imagePath,
-    );
-    await context.read<AppProvider>().addTransaction(t);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('✓ Đã thêm giao dịch'),
-          backgroundColor: AppColors.income,
-          behavior: SnackBarBehavior.floating,
-        ),
+    try {
+      final t = TransactionModel(
+        id: const Uuid().v4(),
+        title: _titleCtrl.text.trim(),
+        amount: amount,
+        type: _type,
+        category: _category,
+        description: _descCtrl.text.trim().isEmpty ? null : _descCtrl.text.trim(),
+        date: _date,
+        imagePath: _imagePath,
       );
-      context.pop();
+      await context.read<AppProvider>().addTransaction(t);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('✓ Đã thêm giao dịch'),
+            backgroundColor: AppColors.income,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        context.pop();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Lỗi lưu giao dịch: $e'), backgroundColor: AppColors.expense),
+        );
+        setState(() => _saving = false);
+      }
     }
   }
 }
@@ -226,12 +236,14 @@ class _ImagePicker extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(children: [
-      OutlinedButton.icon(
-        icon: const Icon(Icons.photo_camera),
-        label: const Text('Camera'),
-        onPressed: () => _pick(context, ImageSource.camera),
-      ),
-      const SizedBox(width: 10),
+      if (!kIsWeb) ...[
+        OutlinedButton.icon(
+          icon: const Icon(Icons.photo_camera),
+          label: const Text('Camera'),
+          onPressed: () => _pick(context, ImageSource.camera),
+        ),
+        const SizedBox(width: 10),
+      ],
       OutlinedButton.icon(
         icon: const Icon(Icons.photo_library),
         label: const Text('Thư viện'),

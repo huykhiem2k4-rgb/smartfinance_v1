@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'config/supabase_config.dart';
 import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
 import 'presentation/providers/app_provider.dart';
@@ -10,30 +12,37 @@ import 'presentation/providers/theme_provider.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('vi_VN', null);
+  await Supabase.initialize(url: SupabaseConfig.url, publishableKey: SupabaseConfig.anonKey);
+
+  final authProvider = AuthProvider();
+
   runApp(
     MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
-        ChangeNotifierProvider(create: (_) => AuthProvider()),
+        ChangeNotifierProvider.value(value: authProvider),
         ChangeNotifierProvider(create: (_) => AppProvider()),
       ],
-      child: const SmartFinanceApp(),
+      child: SmartFinanceApp(authProvider: authProvider),
     ),
   );
 }
 
 class SmartFinanceApp extends StatefulWidget {
-  const SmartFinanceApp({super.key});
+  final AuthProvider authProvider;
+  const SmartFinanceApp({super.key, required this.authProvider});
   @override
   State<SmartFinanceApp> createState() => _SmartFinanceAppState();
 }
 
 class _SmartFinanceAppState extends State<SmartFinanceApp> {
+  late final _router = createRouter(widget.authProvider);
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final auth = context.read<AuthProvider>();
+      final auth = widget.authProvider;
       await auth.tryAutoLogin();
       if (auth.isLoggedIn && context.mounted) {
         final appProv = context.read<AppProvider>();
@@ -52,7 +61,7 @@ class _SmartFinanceAppState extends State<SmartFinanceApp> {
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
       themeMode: themeMode,
-      routerConfig: appRouter,
+      routerConfig: _router,
     );
   }
 }

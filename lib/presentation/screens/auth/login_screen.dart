@@ -47,13 +47,16 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     final isLoading = context.watch<AuthProvider>().isLoading;
+    final isWide = MediaQuery.of(context).size.width >= 720;
 
     return Scaffold(
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 28),
-            child: Form(
+            padding: EdgeInsets.symmetric(horizontal: isWide ? 0 : 28),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: isWide ? 440 : double.infinity),
+              child: Form(
               key: _formKey,
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -127,34 +130,14 @@ class _LoginScreenState extends State<LoginScreen> {
                     children: [
                       const Text('Chưa có tài khoản? ', style: TextStyle(color: Colors.grey)),
                       TextButton(
-                        onPressed: () => context.push('/register'),
+                        onPressed: () => context.go('/register'),
                         child: const Text('Đăng ký ngay'),
                       ),
                     ],
                   ),
-
-                  // Demo hint
-                  const SizedBox(height: 20),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.blue.withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.blue.withValues(alpha: 0.2)),
-                    ),
-                    child: const Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Tài khoản demo:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                        SizedBox(height: 4),
-                        Text('Admin:  admin / admin123', style: TextStyle(fontSize: 12, fontFamily: 'monospace')),
-                        Text('User:   user1 / user123', style: TextStyle(fontSize: 12, fontFamily: 'monospace')),
-                        Text('User:   user2 / user123', style: TextStyle(fontSize: 12, fontFamily: 'monospace')),
-                      ],
-                    ),
-                  ),
                 ],
               ),
+            ),
             ),
           ),
         ),

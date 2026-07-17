@@ -1,5 +1,9 @@
 import 'package:sqflite/sqflite.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 import 'package:path/path.dart';
+import 'package:uuid/uuid.dart';
+import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import '../models/transaction_model.dart';
 import '../models/invoice_model.dart';
 import '../models/user_model.dart';
@@ -7,7 +11,23 @@ import '../models/user_model.dart';
 class LocalDatasource {
   static final LocalDatasource _instance = LocalDatasource._internal();
   factory LocalDatasource() => _instance;
-  LocalDatasource._internal();
+  LocalDatasource._internal() {
+    _initFfi();
+  }
+
+  void _initFfi() {
+    if (kIsWeb) {
+      databaseFactory = databaseFactoryFfiWeb;
+    } else if (defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS) {
+      // Mobile: use default sqflite (no FFI override)
+      return;
+    } else {
+      // Desktop: Linux, macOS, Windows
+      sqfliteFfiInit();
+      databaseFactory = databaseFactoryFfi;
+    }
+  }
 
   Database? _db;
 
@@ -17,12 +37,15 @@ class LocalDatasource {
   }
 
   Future<Database> _initDb() async {
-    final dbPath = await getDatabasesPath();
-    return openDatabase(
-      join(dbPath, 'smartfinance_v4.db'),
-      version: 1,
+    const dbName = 'smartfinance_v5.db';
+    final database = await openDatabase(
+      kIsWeb ? dbName : join(await getDatabasesPath(), dbName),
+      version: 2,
       onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
     );
+    await database.execute('PRAGMA foreign_keys = ON');
+    return database;
   }
 
   Future<void> _onCreate(Database db, int version) async {
@@ -47,7 +70,7 @@ class LocalDatasource {
         description TEXT,
         date TEXT NOT NULL,
         image_path TEXT,
-        FOREIGN KEY (user_id) REFERENCES users(id)
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
       )
     ''');
     await db.execute('''
@@ -67,14 +90,89 @@ class LocalDatasource {
         items_json TEXT,
         image_path TEXT,
         created_at TEXT NOT NULL,
-        FOREIGN KEY (user_id) REFERENCES users(id)
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE invoice_items (
+        id TEXT PRIMARY KEY,
+        invoice_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        quantity INTEGER NOT NULL,
+        unit_price INTEGER NOT NULL,
+        amount INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE audit_logs (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        action TEXT NOT NULL,
+        entity_type TEXT NOT NULL,
+        entity_id TEXT NOT NULL,
+        old_value TEXT,
+        new_value TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
       )
     ''');
     await _seed(db);
   }
 
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS invoice_items (
+          id TEXT PRIMARY KEY,
+          invoice_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          quantity INTEGER NOT NULL,
+          unit_price INTEGER NOT NULL,
+          amount INTEGER NOT NULL,
+          created_at TEXT NOT NULL,
+          FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
+        )
+      ''');
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS audit_logs (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          action TEXT NOT NULL,
+          entity_type TEXT NOT NULL,
+          entity_id TEXT NOT NULL,
+          old_value TEXT,
+          new_value TEXT,
+          created_at TEXT NOT NULL,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+      ''');
+      final invoices = await db.query('invoices');
+      for (final inv in invoices) {
+        final itemsJson = inv['items_json'] as String? ?? '';
+        if (itemsJson.isNotEmpty) {
+          final items = itemsJson.split('~~~');
+          for (final item in items) {
+            final parts = item.split('|||');
+            if (parts.length == 3) {
+              await db.insert('invoice_items', {
+                'id': const Uuid().v4(),
+                'invoice_id': inv['id'],
+                'name': parts[0],
+                'quantity': int.tryParse(parts[1]) ?? 1,
+                'unit_price': int.tryParse(parts[2]) ?? 0,
+                'amount': (int.tryParse(parts[1]) ?? 1) * (int.tryParse(parts[2]) ?? 0),
+                'created_at': DateTime.now().toIso8601String(),
+              });
+            }
+          }
+        }
+      }
+    }
+  }
+
   Future<void> _seed(Database db) async {
-    // Seed users
     final adminHash = UserModel.hashPassword('admin123');
     final userHash = UserModel.hashPassword('user123');
 
@@ -103,7 +201,6 @@ class LocalDatasource {
       'created_at': DateTime.now().toIso8601String(),
     });
 
-    // Seed transactions
     final now = DateTime.now();
     final m = now.month;
     final y = now.year;
@@ -126,7 +223,6 @@ class LocalDatasource {
       await db.insert('transactions', t);
     }
 
-    // Seed invoices
     final invoices = [
       {
         'id': 'inv01', 'user_id': 'u_admin',
@@ -135,7 +231,7 @@ class LocalDatasource {
         'invoice_date': DateTime(y, m, 5).toIso8601String(),
         'due_date': DateTime(y, m, 20).toIso8601String(),
         'status': 'approved', 'ai_confidence': 0.94,
-        'ai_notes': '✅ Hóa đơn hợp lệ (94%)',
+        'ai_notes': 'Hóa đơn hợp lệ (94%)',
         'items_json': 'Máy in HP LaserJet|||2|||5000000~~~Mực in HP|||4|||909091',
         'image_path': null, 'created_at': DateTime(y, m, 5).toIso8601String(),
       },
@@ -156,13 +252,31 @@ class LocalDatasource {
         'invoice_date': DateTime(y, m - 1, 30).toIso8601String(),
         'due_date': DateTime(y, m, 15).toIso8601String(),
         'status': 'rejected', 'ai_confidence': 0.23,
-        'ai_notes': '❌ Hóa đơn đáng ngờ (23%)',
+        'ai_notes': 'Hóa đơn đáng ngờ (23%)',
         'items_json': 'Hàng hóa không xác định|||1|||41000000',
         'image_path': null, 'created_at': DateTime(y, m - 1, 30).toIso8601String(),
       },
     ];
     for (final inv in invoices) {
       await db.insert('invoices', inv);
+    }
+
+    final seedItems = [
+      {'invoice_id': 'inv01', 'name': 'Máy in HP LaserJet', 'quantity': 2, 'unit_price': 5000000},
+      {'invoice_id': 'inv01', 'name': 'Mực in HP', 'quantity': 4, 'unit_price': 909091},
+      {'invoice_id': 'inv02', 'name': 'Dịch vụ Cloud Server tháng 6', 'quantity': 1, 'unit_price': 2963000},
+      {'invoice_id': 'inv03', 'name': 'Hàng hóa không xác định', 'quantity': 1, 'unit_price': 41000000},
+    ];
+    for (final item in seedItems) {
+      await db.insert('invoice_items', {
+        'id': const Uuid().v4(),
+        'invoice_id': item['invoice_id'],
+        'name': item['name'],
+        'quantity': item['quantity'],
+        'unit_price': item['unit_price'],
+        'amount': (item['quantity'] as int) * (item['unit_price'] as int),
+        'created_at': DateTime.now().toIso8601String(),
+      });
     }
   }
 
@@ -190,7 +304,7 @@ class LocalDatasource {
 
   Future<void> insertUser(UserModel user) async {
     final d = await db;
-    await d.insert('users', user.toMap(), conflictAlgorithm: ConflictAlgorithm.abort);
+    await d.insert('users', user.toMap(), conflictAlgorithm: ConflictAlgorithm.ignore);
   }
 
   Future<void> updateUser(UserModel user) async {
@@ -200,8 +314,6 @@ class LocalDatasource {
 
   Future<void> deleteUser(String id) async {
     final d = await db;
-    await d.delete('transactions', where: 'user_id = ?', whereArgs: [id]);
-    await d.delete('invoices', where: 'user_id = ?', whereArgs: [id]);
     await d.delete('users', where: 'id = ?', whereArgs: [id]);
   }
 
@@ -246,10 +358,22 @@ class LocalDatasource {
     return rows.map(TransactionModel.fromMap).toList();
   }
 
+  Future<TransactionModel?> getTransactionById(String id) async {
+    final d = await db;
+    final rows = await d.query('transactions', where: 'id = ?', whereArgs: [id]);
+    if (rows.isEmpty) return null;
+    return TransactionModel.fromMap(rows.first);
+  }
+
   Future<void> insertTransaction(TransactionModel t, String userId) async {
     final d = await db;
     final map = t.toMap()..['user_id'] = userId;
     await d.insert('transactions', map, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<void> updateTransaction(TransactionModel t) async {
+    final d = await db;
+    await d.update('transactions', t.toMap(), where: 'id = ?', whereArgs: [t.id]);
   }
 
   Future<void> deleteTransaction(String id) async {
@@ -330,25 +454,57 @@ class LocalDatasource {
     if (userId != null) { where += ' AND user_id = ?'; args.add(userId); }
     if (status != null) { where += ' AND status = ?'; args.add(status.name); }
     final rows = await d.query('invoices', where: where, whereArgs: args, orderBy: 'created_at DESC');
-    return rows.map(InvoiceModel.fromMap).toList();
+    final invoices = <InvoiceModel>[];
+    for (final row in rows) {
+      final items = await getInvoiceItems(row['id'] as String);
+      invoices.add(InvoiceModel.fromMap(row, items: items));
+    }
+    return invoices;
   }
 
   Future<InvoiceModel?> getInvoice(String id) async {
     final d = await db;
     final rows = await d.query('invoices', where: 'id = ?', whereArgs: [id]);
     if (rows.isEmpty) return null;
-    return InvoiceModel.fromMap(rows.first);
+    final items = await getInvoiceItems(id);
+    return InvoiceModel.fromMap(rows.first, items: items);
   }
 
   Future<void> insertInvoice(InvoiceModel inv, String userId) async {
     final d = await db;
     final map = inv.toMap()..['user_id'] = userId;
+    map.remove('items_json');
     await d.insert('invoices', map, conflictAlgorithm: ConflictAlgorithm.replace);
+    for (final item in inv.items) {
+      await d.insert('invoice_items', {
+        'id': const Uuid().v4(),
+        'invoice_id': inv.id,
+        'name': item.name,
+        'quantity': item.quantity,
+        'unit_price': item.unitPrice,
+        'amount': item.total,
+        'created_at': DateTime.now().toIso8601String(),
+      });
+    }
   }
 
   Future<void> updateInvoice(InvoiceModel inv) async {
     final d = await db;
-    await d.update('invoices', inv.toMap(), where: 'id = ?', whereArgs: [inv.id]);
+    final map = inv.toMap();
+    map.remove('items_json');
+    await d.update('invoices', map, where: 'id = ?', whereArgs: [inv.id]);
+    await d.delete('invoice_items', where: 'invoice_id = ?', whereArgs: [inv.id]);
+    for (final item in inv.items) {
+      await d.insert('invoice_items', {
+        'id': const Uuid().v4(),
+        'invoice_id': inv.id,
+        'name': item.name,
+        'quantity': item.quantity,
+        'unit_price': item.unitPrice,
+        'amount': item.total,
+        'created_at': DateTime.now().toIso8601String(),
+      });
+    }
   }
 
   Future<void> deleteInvoice(String id) async {
@@ -365,5 +521,49 @@ class LocalDatasource {
       args,
     );
     return {for (final r in rows) r['status'].toString(): (r['cnt'] as int)};
+  }
+
+  // ── INVOICE ITEMS ──────────────────────────────────────────────
+
+  Future<List<InvoiceItem>> getInvoiceItems(String invoiceId) async {
+    final d = await db;
+    final rows = await d.query('invoice_items', where: 'invoice_id = ?', whereArgs: [invoiceId]);
+    return rows.map((r) => InvoiceItem(
+      name: r['name'] as String,
+      quantity: (r['quantity'] as num).toInt(),
+      unitPrice: (r['unit_price'] as num).toInt(),
+    )).toList();
+  }
+
+  // ── AUDIT LOGS ─────────────────────────────────────────────────
+
+  Future<void> insertAuditLog({
+    required String userId,
+    required String action,
+    required String entityType,
+    required String entityId,
+    String? oldValue,
+    String? newValue,
+  }) async {
+    final d = await db;
+    await d.insert('audit_logs', {
+      'id': const Uuid().v4(),
+      'user_id': userId,
+      'action': action,
+      'entity_type': entityType,
+      'entity_id': entityId,
+      'old_value': oldValue,
+      'new_value': newValue,
+      'created_at': DateTime.now().toIso8601String(),
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> getAuditLogs({String? userId, String? entityType}) async {
+    final d = await db;
+    String where = '1=1';
+    final args = <dynamic>[];
+    if (userId != null) { where += ' AND user_id = ?'; args.add(userId); }
+    if (entityType != null) { where += ' AND entity_type = ?'; args.add(entityType); }
+    return d.query('audit_logs', where: where, whereArgs: args, orderBy: 'created_at DESC');
   }
 }

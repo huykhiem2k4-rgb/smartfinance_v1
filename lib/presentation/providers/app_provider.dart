@@ -4,6 +4,8 @@ import '../../data/models/transaction_model.dart';
 import '../../data/models/invoice_model.dart';
 import '../../data/repositories/transaction_repository.dart';
 import '../../data/repositories/invoice_repository.dart';
+import '../../data/datasources/local_datasource.dart';
+import '../../data/models/user_model.dart';
 import '../../core/utils/currency_calculator.dart';
 
 enum FilterPeriod { thisMonth, lastMonth, allTime }
@@ -11,12 +13,15 @@ enum FilterPeriod { thisMonth, lastMonth, allTime }
 class AppProvider extends ChangeNotifier {
   final TransactionRepository _txRepo;
   final InvoiceRepository _invRepo;
+  final LocalDatasource _local;
 
   AppProvider({
     TransactionRepository? txRepo,
     InvoiceRepository? invRepo,
+    LocalDatasource? local,
   })  : _txRepo = txRepo ?? TransactionRepository(),
-        _invRepo = invRepo ?? InvoiceRepository();
+        _invRepo = invRepo ?? InvoiceRepository(),
+        _local = local ?? LocalDatasource();
 
   // ── Auth context ──────────────────────────────────────────────
   String? _userId;
@@ -117,8 +122,31 @@ class AppProvider extends ChangeNotifier {
   }
 
   // ── Transactions ──────────────────────────────────────────────
+  Future<void> _ensureUserExists() async {
+    if (_userId == null) return;
+    final existing = await _local.getUserById(_userId!);
+    if (existing == null) {
+      await _local.insertUser(UserModel(
+        id: _userId!,
+        username: _userId!,
+        passwordHash: '',
+        role: UserRole.user,
+        fullName: null,
+        createdAt: DateTime.now(),
+      ));
+    }
+  }
+
+  Future<TransactionModel?> getTransaction(String id) => _txRepo.getById(id);
+
   Future<void> addTransaction(TransactionModel t) async {
+    await _ensureUserExists();
     await _txRepo.add(t, _userId ?? 'u_admin');
+    await Future.wait([_loadTransactions(), _loadTrend()]);
+  }
+
+  Future<void> updateTransaction(TransactionModel t) async {
+    await _txRepo.update(t);
     await Future.wait([_loadTransactions(), _loadTrend()]);
   }
 
@@ -135,6 +163,7 @@ class AppProvider extends ChangeNotifier {
 
   // ── Invoices ──────────────────────────────────────────────────
   Future<void> addInvoice(InvoiceModel inv) async {
+    await _ensureUserExists();
     await _invRepo.add(inv, _userId ?? 'u_admin');
     await _loadInvoices();
   }

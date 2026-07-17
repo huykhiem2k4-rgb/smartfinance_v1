@@ -115,13 +115,13 @@ class _UserListTab extends StatelessWidget {
     final newRole = user.role == UserRole.admin ? UserRole.user : UserRole.admin;
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogCtx) => AlertDialog(
         title: const Text('Thay đổi quyền'),
         content: Text('Đổi quyền "${user.username}" thành ${newRole.label}?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Hủy')),
+          TextButton(onPressed: () => Navigator.pop(dialogCtx, false), child: const Text('Hủy')),
           ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => Navigator.pop(dialogCtx, true),
             child: const Text('Xác nhận'),
           ),
         ],
@@ -136,14 +136,14 @@ class _UserListTab extends StatelessWidget {
   Future<void> _deleteUser(BuildContext context, UserModel user) async {
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogCtx) => AlertDialog(
         title: const Text('Xóa người dùng'),
         content: Text('Xóa "${user.fullName ?? user.username}"?\nToàn bộ giao dịch và hóa đơn của họ cũng sẽ bị xóa.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Hủy')),
+          TextButton(onPressed: () => Navigator.pop(dialogCtx, false), child: const Text('Hủy')),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.expense),
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => Navigator.pop(dialogCtx, true),
             child: const Text('Xóa'),
           ),
         ],

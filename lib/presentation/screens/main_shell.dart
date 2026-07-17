@@ -135,14 +135,14 @@ class _UserMenu extends StatelessWidget {
         } else if (v == 'logout') {
           final confirm = await showDialog<bool>(
             context: context,
-            builder: (_) => AlertDialog(
+            builder: (dialogCtx) => AlertDialog(
               title: const Text('Đăng xuất'),
               content: const Text('Bạn có chắc muốn đăng xuất không?'),
               actions: [
-                TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Hủy')),
+                TextButton(onPressed: () => Navigator.pop(dialogCtx, false), child: const Text('Hủy')),
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(backgroundColor: AppColors.expense),
-                  onPressed: () => Navigator.pop(context, true),
+                  onPressed: () => Navigator.pop(dialogCtx, true),
                   child: const Text('Đăng xuất'),
                 ),
               ],

@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import '../../providers/app_provider.dart';
 import '../../widgets/cash_flow_chart.dart';
 import '../../widgets/summary_card.dart';
@@ -22,6 +23,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   Map<String, int> _invoiceStats = {};
   bool _loaded = false;
   FilterPeriod _activePeriod = FilterPeriod.thisMonth;
+  bool _showLineChart = false;
 
   static const _incomeColors = [AppColors.income, Color(0xFF66BB6A), Color(0xFF26A69A), Color(0xFF42A5F5)];
   static const _expenseColors = [AppColors.expense, Color(0xFFEF9A9A), Color(0xFFFF7043), Color(0xFFFFB74D), Color(0xFF9575CD), Color(0xFF78909C)];
@@ -58,6 +60,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isWide = MediaQuery.of(context).size.width >= 720;
     return Consumer<AppProvider>(
       builder: (ctx, p, _) => Scaffold(
         appBar: AppBar(
@@ -98,6 +101,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
                           _dot(AppColors.income), const SizedBox(width: 4), const Text('Thu', style: TextStyle(fontSize: 11)),
                           const SizedBox(width: 10),
                           _dot(AppColors.expense), const SizedBox(width: 4), const Text('Chi', style: TextStyle(fontSize: 11)),
+                          const SizedBox(width: 10),
+                          IconButton(
+                            icon: Icon(_showLineChart ? Icons.bar_chart : Icons.show_chart, size: 20),
+                            onPressed: () => setState(() => _showLineChart = !_showLineChart),
+                            tooltip: _showLineChart ? 'Biểu đồ cột' : 'Biểu đồ đường',
+                          ),
                         ]),
                         child: SizedBox(
                           height: 200,
@@ -105,7 +114,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
                             duration: const Duration(milliseconds: 400),
                             child: p.trend.isEmpty
                                 ? const Center(child: Text('Không có dữ liệu'))
-                                : CashFlowBarChart(key: ValueKey(p.trend.hashCode), trend: p.trend),
+                                : _showLineChart
+                                    ? CashFlowLineChart(key: ValueKey('line${p.trend.hashCode}'), trend: p.trend)
+                                    : CashFlowBarChart(key: ValueKey('bar${p.trend.hashCode}'), trend: p.trend),
                           ),
                         ),
                       ),
@@ -132,13 +143,26 @@ class _ReportsScreenState extends State<ReportsScreen> {
                       // ── Invoice stats ──
                       _Card(
                         title: 'Thống kê hóa đơn',
-                        child: Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
-                          _InvStat('Chờ duyệt', _invoiceStats['pending'] ?? 0, Colors.grey),
-                          _InvStat('Đã duyệt', _invoiceStats['approved'] ?? 0, AppColors.income),
-                          _InvStat('Từ chối', _invoiceStats['rejected'] ?? 0, AppColors.expense),
-                        ]),
+                        child: isWide
+                            ? _InvoiceStatsTable(stats: _invoiceStats)
+                            : Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
+                                _InvStat('Chờ duyệt', _invoiceStats['pending'] ?? 0, Colors.grey),
+                                _InvStat('Đã duyệt', _invoiceStats['approved'] ?? 0, AppColors.income),
+                                _InvStat('Từ chối', _invoiceStats['rejected'] ?? 0, AppColors.expense),
+                              ]),
                       ),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 14),
+
+                      // ── Transaction details table (Desktop) ──
+                      if (isWide) ...[
+                        _Card(
+                          title: 'Chi tiết giao dịch',
+                          child: _TransactionDataTable(transactions: p.transactions),
+                        ),
+                        const SizedBox(height: 24),
+                      ],
+
+                      if (!isWide) const SizedBox(height: 24),
                     ],
                   ),
                 ),
@@ -150,7 +174,13 @@ class _ReportsScreenState extends State<ReportsScreen> {
   Widget _dot(Color c) => Container(width: 10, height: 10, decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(2)));
 
   Future<void> _exportPdf(AppProvider p) async {
-    final doc = pw.Document();
+    // Load fonts
+    final fontData = await rootBundle.load('assets/fonts/NotoSans-Regular.ttf');
+    final boldData = await rootBundle.load('assets/fonts/NotoSans-Bold.ttf');
+    final font = pw.Font.ttf(fontData);
+    final bold = pw.Font.ttf(boldData);
+
+    final doc = pw.Document(theme: pw.ThemeData.withFont(base: font, bold: bold));
     final now = DateTime.now();
     const periodLabels = {FilterPeriod.thisMonth: 'Tháng này', FilterPeriod.lastMonth: 'Tháng trước', FilterPeriod.allTime: 'Toàn kỳ'};
     doc.addPage(pw.Page(
@@ -300,4 +330,87 @@ class _InvStat extends StatelessWidget {
     ),
     Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
   ]);
+}
+
+class _InvoiceStatsTable extends StatelessWidget {
+  final Map<String, int> stats;
+  const _InvoiceStatsTable({required this.stats});
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: DataTable(
+        columns: const [
+          DataColumn(label: Text('Trạng thái')),
+          DataColumn(label: Text('Số lượng'), numeric: true),
+        ],
+        rows: [
+          _statRow('Chờ duyệt', stats['pending'] ?? 0, Colors.grey),
+          _statRow('Đã duyệt', stats['approved'] ?? 0, AppColors.income),
+          _statRow('Từ chối', stats['rejected'] ?? 0, AppColors.expense),
+        ],
+      ),
+    );
+  }
+
+  DataRow _statRow(String label, int count, Color color) {
+    return DataRow(cells: [
+      DataCell(Text(label, style: TextStyle(fontWeight: FontWeight.w500, color: color))),
+      DataCell(Text('$count', style: TextStyle(fontWeight: FontWeight.bold, color: color))),
+    ]);
+  }
+}
+
+class _TransactionDataTable extends StatelessWidget {
+  final List<TransactionModel> transactions;
+  const _TransactionDataTable({required this.transactions});
+
+  @override
+  Widget build(BuildContext context) {
+    if (transactions.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.all(20),
+        child: Center(child: Text('Không có giao dịch')),
+      );
+    }
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: DataTable(
+        showCheckboxColumn: false,
+        columns: const [
+          DataColumn(label: Text('Tiêu đề')),
+          DataColumn(label: Text('Loại')),
+          DataColumn(label: Text('Danh mục')),
+          DataColumn(label: Text('Số tiền'), numeric: true),
+          DataColumn(label: Text('Ngày')),
+        ],
+        rows: transactions.map((t) {
+          final isIncome = t.type == TransactionType.income;
+          return DataRow(
+            cells: [
+            DataCell(Text(t.title, style: const TextStyle(fontWeight: FontWeight.w500))),
+            DataCell(Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: (isIncome ? AppColors.income : AppColors.expense).withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(isIncome ? 'Thu' : 'Chi',
+                  style: TextStyle(color: isIncome ? AppColors.income : AppColors.expense, fontSize: 12)),
+            )),
+            DataCell(Text(t.category.label, style: const TextStyle(fontSize: 12))),
+            DataCell(Text(
+              Formatters.currency(t.amount),
+              style: TextStyle(
+                color: isIncome ? AppColors.income : AppColors.expense,
+                fontWeight: FontWeight.bold,
+              ),
+            )),
+            DataCell(Text(Formatters.date(t.date), style: const TextStyle(fontSize: 12))),
+          ]);
+        }).toList(),
+      ),
+    );
+  }
 }
