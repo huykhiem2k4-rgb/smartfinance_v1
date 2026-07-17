@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
-import '../../providers/app_provider.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/validators.dart';
 
@@ -39,11 +38,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
     if (!mounted) return;
     if (ok) {
-      final appProv = context.read<AppProvider>();
-      appProv.setUser(auth.userId, isAdmin: false);
-      await appProv.loadAll();
       if (!mounted) return;
-      context.go('/dashboard');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: const Text('Đăng ký thành công! Vui lòng đăng nhập.'), backgroundColor: AppColors.primary),
+      );
+      context.go('/login');
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(auth.error ?? 'Đăng ký thất bại'), backgroundColor: AppColors.expense),

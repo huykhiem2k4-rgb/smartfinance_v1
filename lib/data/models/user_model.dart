@@ -58,4 +58,13 @@ class UserModel {
         fullName: fullName ?? this.fullName,
         createdAt: createdAt,
       );
+
+  factory UserModel.fromSupabase(Map<String, dynamic> m) => UserModel(
+        id: m['id'],
+        username: m['username'] ?? '',
+        passwordHash: '',
+        role: (m['role'] ?? 'user') == 'admin' ? UserRole.admin : UserRole.user,
+        fullName: m['full_name'],
+        createdAt: m['created_at'] != null ? DateTime.parse(m['created_at']) : DateTime.now(),
+      );
 }

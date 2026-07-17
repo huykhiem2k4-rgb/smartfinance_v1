@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import '../../providers/app_provider.dart';
 import '../../../data/models/invoice_model.dart';
 import '../../../core/theme/app_theme.dart';
@@ -98,9 +99,12 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen>
       }
     }
     // Date
-    final daysDiff = DateTime.now().difference(inv.invoiceDate).inDays;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final invoiceDay = DateTime(inv.invoiceDate.year, inv.invoiceDate.month, inv.invoiceDate.day);
+    final daysDiff = today.difference(invoiceDay).inDays;
     if (daysDiff > 365) { conf -= 0.10; issues.add('Hóa đơn quá cũ (> 1 năm).'); }
-    else if (inv.invoiceDate.isAfter(DateTime.now())) { conf -= 0.20; issues.add('Ngày hóa đơn trong tương lai.'); }
+    else if (invoiceDay.isAfter(today)) { conf -= 0.20; issues.add('Ngày hóa đơn trong tương lai.'); }
     else { positives.add('Ngày hóa đơn hợp lệ.'); }
     // Invoice number format
     if (RegExp(r'[A-Z]{1,3}[-/]?\d{4}[-/]\d+').hasMatch(inv.invoiceNumber.toUpperCase())) {
@@ -111,7 +115,7 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen>
 
     conf += (rng.nextDouble() - 0.5) * 0.04;
     conf = conf.clamp(0.05, 0.99);
-    final status = conf >= 0.70 ? InvoiceStatus.approved : conf >= 0.40 ? InvoiceStatus.pending : InvoiceStatus.rejected;
+    final status = conf >= 0.70 ? InvoiceStatus.approved : conf >= 0.40 ? InvoiceStatus.reviewing : InvoiceStatus.rejected;
 
     final buf = StringBuffer();
     buf.writeln(conf >= 0.70 ? '✅ Hóa đơn hợp lệ (${(conf*100).toStringAsFixed(0)}%)' : conf >= 0.40 ? '⚠️ Cần xem xét thêm (${(conf*100).toStringAsFixed(0)}%)' : '❌ Hóa đơn đáng ngờ (${(conf*100).toStringAsFixed(0)}%)');
@@ -125,7 +129,7 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen>
     final color = result.status == InvoiceStatus.approved ? AppColors.income : result.status == InvoiceStatus.rejected ? AppColors.expense : AppColors.warning;
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogCtx) => AlertDialog(
         title: Row(children: [
           Icon(result.status == InvoiceStatus.approved ? Icons.check_circle : result.status == InvoiceStatus.rejected ? Icons.cancel : Icons.warning, color: color),
           const SizedBox(width: 8),
@@ -136,14 +140,36 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen>
           const SizedBox(height: 12),
           Text(result.notes, style: const TextStyle(fontSize: 13, height: 1.6)),
         ])),
-        actions: [ElevatedButton(onPressed: () => Navigator.pop(context), child: const Text('Đóng'))],
+        actions: [ElevatedButton(onPressed: () => Navigator.pop(dialogCtx), child: const Text('Đóng'))],
       ),
     );
   }
 
+  Future<void> _updateStatus(InvoiceStatus newStatus) async {
+    if (_invoice == null) return;
+    final updated = _invoice!.copyWith(status: newStatus);
+    await context.read<AppProvider>().updateInvoice(updated);
+    await _load();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(newStatus == InvoiceStatus.approved ? 'Đã duyệt hóa đơn' : 'Đã từ chối hóa đơn'),
+          backgroundColor: newStatus == InvoiceStatus.approved ? AppColors.income : AppColors.expense,
+        ),
+      );
+    }
+  }
+
   Future<void> _exportPdf() async {
     final inv = _invoice!;
-    final doc = pw.Document();
+    
+    // Load fonts
+    final fontData = await rootBundle.load('assets/fonts/NotoSans-Regular.ttf');
+    final boldData = await rootBundle.load('assets/fonts/NotoSans-Bold.ttf');
+    final font = pw.Font.ttf(fontData);
+    final bold = pw.Font.ttf(boldData);
+
+    final doc = pw.Document(theme: pw.ThemeData.withFont(base: font, bold: bold));
     doc.addPage(pw.Page(
       pageFormat: PdfPageFormat.a4,
       margin: const pw.EdgeInsets.all(36),
@@ -293,6 +319,25 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen>
                     onPressed: _checking ? null : _runAiCheck,
                   )),
                 ],
+
+                if (inv.status == InvoiceStatus.reviewing) ...[
+                  const SizedBox(height: 16),
+                  Row(children: [
+                    Expanded(child: ElevatedButton.icon(
+                      icon: const Icon(Icons.check_circle),
+                      label: const Text('Duyệt'),
+                      style: ElevatedButton.styleFrom(backgroundColor: AppColors.income, foregroundColor: Colors.white),
+                      onPressed: () => _updateStatus(InvoiceStatus.approved),
+                    )),
+                    const SizedBox(width: 12),
+                    Expanded(child: ElevatedButton.icon(
+                      icon: const Icon(Icons.cancel),
+                      label: const Text('Từ chối'),
+                      style: ElevatedButton.styleFrom(backgroundColor: AppColors.expense, foregroundColor: Colors.white),
+                      onPressed: () => _updateStatus(InvoiceStatus.rejected),
+                    )),
+                  ]),
+                ],
                 const SizedBox(height: 24),
               ]),
             ),
@@ -345,7 +390,7 @@ class _InfoRow extends StatelessWidget {
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.symmetric(vertical: 3),
     child: Row(children: [
-      SizedBox(width: 140, child: Text(label, style: const TextStyle(color: Colors.grey, fontSize: 12))),
+      SizedBox(width: 120, child: Text(label, style: const TextStyle(color: Colors.grey, fontSize: 12))),
       Expanded(child: Text(value, style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13))),
     ]),
   );

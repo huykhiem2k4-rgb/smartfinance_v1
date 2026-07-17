@@ -5,7 +5,6 @@ import '../../providers/app_provider.dart';
 import '../../widgets/transaction_tile.dart';
 import '../../../data/models/transaction_model.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../core/utils/formatters.dart';
 
 class TransactionsScreen extends StatefulWidget {
   const TransactionsScreen({super.key});
@@ -20,7 +19,7 @@ class _TransactionsScreenState extends State<TransactionsScreen>
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 3, vsync: this);
+    _tabs = TabController(length: 2, vsync: this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<AppProvider>().loadAll();
     });
@@ -32,19 +31,24 @@ class _TransactionsScreenState extends State<TransactionsScreen>
     super.dispose();
   }
 
+  void _editTransaction(TransactionModel t) {
+    context.push('/transactions/edit/${t.id}');
+  }
+
   @override
   Widget build(BuildContext context) {
-    final isWide = MediaQuery.of(context).size.width >= 720;
-
+    final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Giao dịch'),
+        toolbarHeight: isLandscape ? 40 : null,
         bottom: TabBar(
           controller: _tabs,
           labelColor: Colors.white,
           unselectedLabelColor: Colors.white60,
           indicatorColor: AppColors.accent,
-          tabs: const [Tab(text: 'Tất cả'), Tab(text: 'Thu tiền'), Tab(text: 'Chi tiền')],
+          labelPadding: EdgeInsets.symmetric(horizontal: isLandscape ? 10 : 16),
+          tabs: const [Tab(text: 'Thu tiền'), Tab(text: 'Chi tiền')],
         ),
       ),
       floatingActionButton: FloatingActionButton.extended(
@@ -58,9 +62,8 @@ class _TransactionsScreenState extends State<TransactionsScreen>
           return TabBarView(
             controller: _tabs,
             children: [
-              _TxList(transactions: p.transactions, onDelete: p.deleteTransaction, isWide: isWide),
-              _TxList(transactions: p.transactions.where((t) => t.type == TransactionType.income).toList(), onDelete: p.deleteTransaction, isWide: isWide),
-              _TxList(transactions: p.transactions.where((t) => t.type == TransactionType.expense).toList(), onDelete: p.deleteTransaction, isWide: isWide),
+              _TxList(transactions: p.transactions.where((t) => t.type == TransactionType.income).toList(), onDelete: p.deleteTransaction, onEdit: (t) => _editTransaction(t)),
+              _TxList(transactions: p.transactions.where((t) => t.type == TransactionType.expense).toList(), onDelete: p.deleteTransaction, onEdit: (t) => _editTransaction(t)),
             ],
           );
         },
@@ -72,9 +75,9 @@ class _TransactionsScreenState extends State<TransactionsScreen>
 class _TxList extends StatelessWidget {
   final List<TransactionModel> transactions;
   final Future<void> Function(String) onDelete;
-  final bool isWide;
+  final void Function(TransactionModel) onEdit;
 
-  const _TxList({required this.transactions, required this.onDelete, required this.isWide});
+  const _TxList({required this.transactions, required this.onDelete, required this.onEdit});
 
   @override
   Widget build(BuildContext context) {
@@ -88,77 +91,13 @@ class _TxList extends StatelessWidget {
       );
     }
 
-    if (isWide) {
-      // Desktop table view
-      return SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Card(
-          child: DataTable(
-            columns: const [
-              DataColumn(label: Text('Tiêu đề')),
-              DataColumn(label: Text('Loại')),
-              DataColumn(label: Text('Danh mục')),
-              DataColumn(label: Text('Số tiền'), numeric: true),
-              DataColumn(label: Text('Ngày')),
-              DataColumn(label: Text('Xóa')),
-            ],
-            rows: transactions.map((t) {
-              final isIncome = t.type == TransactionType.income;
-              return DataRow(cells: [
-                DataCell(Text(t.title, style: const TextStyle(fontWeight: FontWeight.w500))),
-                DataCell(Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: (isIncome ? AppColors.income : AppColors.expense).withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(isIncome ? 'Thu' : 'Chi',
-                      style: TextStyle(color: isIncome ? AppColors.income : AppColors.expense, fontSize: 12)),
-                )),
-                DataCell(Text(t.category.label, style: const TextStyle(fontSize: 12))),
-                DataCell(Text(
-                  Formatters.currency(t.amount),
-                  style: TextStyle(
-                    color: isIncome ? AppColors.income : AppColors.expense,
-                    fontWeight: FontWeight.bold,
-                  ),
-                )),
-                DataCell(Text(Formatters.date(t.date), style: const TextStyle(fontSize: 12))),
-                DataCell(IconButton(
-                  icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 18),
-                  onPressed: () => _confirmDelete(context, t),
-                )),
-              ]);
-            }).toList(),
-          ),
-        ),
-      );
-    }
-
     return ListView.builder(
       padding: const EdgeInsets.only(top: 8, bottom: 80),
       itemCount: transactions.length,
       itemBuilder: (_, i) => TransactionTile(
         transaction: transactions[i],
         onDelete: () => onDelete(transactions[i].id),
-      ),
-    );
-  }
-
-  void _confirmDelete(BuildContext context, TransactionModel t) {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Xác nhận xóa'),
-        content: Text('Xóa "${t.title}"?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Hủy')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.expense),
-            onPressed: () { onDelete(t.id); Navigator.pop(context); },
-            child: const Text('Xóa'),
-          ),
-        ],
+        onTap: () => onEdit(transactions[i]),
       ),
     );
   }

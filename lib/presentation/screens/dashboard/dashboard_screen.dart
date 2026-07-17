@@ -15,6 +15,8 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
+  bool _showLineChart = false;
+
   @override
   void initState() {
     super.initState();
@@ -120,6 +122,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             _Legend(AppColors.income, 'Thu'),
                             const SizedBox(width: 12),
                             _Legend(AppColors.expense, 'Chi'),
+                            const SizedBox(width: 8),
+                            IconButton(
+                              icon: Icon(_showLineChart ? Icons.bar_chart : Icons.show_chart, size: 18),
+                              onPressed: () => setState(() => _showLineChart = !_showLineChart),
+                              tooltip: _showLineChart ? 'Biểu đồ cột' : 'Biểu đồ đường',
+                            ),
                           ]),
                           const SizedBox(height: 14),
                           SizedBox(
@@ -128,7 +136,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 ? const Center(child: CircularProgressIndicator())
                                 : AnimatedSwitcher(
                                     duration: const Duration(milliseconds: 400),
-                                    child: CashFlowBarChart(key: ValueKey(p.trend.length), trend: p.trend),
+                                    child: _showLineChart
+                                        ? CashFlowLineChart(key: ValueKey('line${p.trend.hashCode}'), trend: p.trend)
+                                        : CashFlowBarChart(key: ValueKey('bar${p.trend.length}'), trend: p.trend),
                                   ),
                           ),
                         ],

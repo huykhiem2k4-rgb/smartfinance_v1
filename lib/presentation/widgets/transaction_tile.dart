@@ -6,8 +6,9 @@ import '../../core/utils/formatters.dart';
 class TransactionTile extends StatelessWidget {
   final TransactionModel transaction;
   final VoidCallback? onDelete;
+  final VoidCallback? onTap;
 
-  const TransactionTile({super.key, required this.transaction, this.onDelete});
+  const TransactionTile({super.key, required this.transaction, this.onDelete, this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -31,6 +32,7 @@ class TransactionTile extends StatelessWidget {
       child: Card(
         margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
         child: ListTile(
+          onTap: onTap,
           leading: Container(
             width: 40,
             height: 40,
@@ -62,14 +64,14 @@ class TransactionTile extends StatelessWidget {
   Future<bool?> _confirmDismiss(BuildContext context) {
     return showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogCtx) => AlertDialog(
         title: const Text('Xác nhận xóa'),
         content: Text('Xóa giao dịch "${transaction.title}"?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Hủy')),
+          TextButton(onPressed: () => Navigator.pop(dialogCtx, false), child: const Text('Hủy')),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.expense),
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => Navigator.pop(dialogCtx, true),
             child: const Text('Xóa'),
           ),
         ],

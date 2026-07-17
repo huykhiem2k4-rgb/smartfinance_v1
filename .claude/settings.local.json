@@ -3,7 +3,11 @@
     "allow": [
       "PowerShell(if \\(-not $?\\) { \"Directory is empty or does not exist\" })",
       "mcp__visualize__read_me",
-      "mcp__visualize__show_widget"
+      "mcp__visualize__show_widget",
+      "Bash(npm list *)",
+      "Bash(npm install *)",
+      "Bash(node generate_doc.js)",
+      "Bash(rm -f \"D:/SmartFinance/docs/generate_doc.js\" 2>/dev/null; rm -f \"C:/Users/Khiem/Downloads/nhom1_copy.docx\" \"C:/Users/Khiem/Downloads/nhom1_text.txt\" \"C:/Users/Khiem/Downloads/plan_copy.docx\" \"C:/Users/Khiem/Downloads/plan_text.txt\" 2>/dev/null; ls -la \"D:/SmartFinance/docs/\" 2>&1)"
     ]
   }
 }

@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import '../../providers/app_provider.dart';
 import '../../../data/models/invoice_model.dart';
 import '../../../core/theme/app_theme.dart';
@@ -32,7 +33,6 @@ class _AddInvoiceScreenState extends State<AddInvoiceScreen>
   bool _scanning = false;
   bool _saving = false;
 
-  // Animation for AI scan
   late AnimationController _scanAnim;
   late Animation<double> _scanProgress;
 
@@ -95,12 +95,14 @@ class _AddInvoiceScreenState extends State<AddInvoiceScreen>
                   ],
                   if (!_scanning)
                     Row(children: [
-                      OutlinedButton.icon(
-                        icon: const Icon(Icons.photo_camera, size: 18),
-                        label: const Text('Camera'),
-                        onPressed: () => _pickAndScan(ImageSource.camera),
-                      ),
-                      const SizedBox(width: 10),
+                      if (!kIsWeb) ...[
+                        OutlinedButton.icon(
+                          icon: const Icon(Icons.photo_camera, size: 18),
+                          label: const Text('Camera'),
+                          onPressed: () => _pickAndScan(ImageSource.camera),
+                        ),
+                        const SizedBox(width: 10),
+                      ],
                       OutlinedButton.icon(
                         icon: const Icon(Icons.photo_library, size: 18),
                         label: const Text('Thư viện'),
@@ -170,10 +172,7 @@ class _AddInvoiceScreenState extends State<AddInvoiceScreen>
             const SizedBox(height: 10),
 
             // VAT summary
-            _VatSummary(
-              subtotalStr: _subtotalCtrl.text,
-              vatRate: _vatRate,
-            ),
+            _VatSummary(subtotalStr: _subtotalCtrl.text, vatRate: _vatRate),
             const SizedBox(height: 12),
 
             // Date
@@ -233,16 +232,17 @@ class _AddInvoiceScreenState extends State<AddInvoiceScreen>
     setState(() { _imagePath = img.path; _scanning = true; });
     _scanAnim.reset();
     await _scanAnim.forward();
-    // Mock OCR fill
     _fillMockData();
     setState(() => _scanning = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('✓ AI đã đọc và điền dữ liệu hóa đơn'),
-        backgroundColor: AppColors.accent,
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('✓ AI đã đọc và điền dữ liệu hóa đơn'),
+          backgroundColor: AppColors.accent,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   void _fillMockData() {
@@ -251,6 +251,8 @@ class _AddInvoiceScreenState extends State<AddInvoiceScreen>
     final taxCodes = ['0123456789', '0987654321', '0246813579'];
     final inv = 'HD-${DateTime.now().year}-${(rng.nextInt(900) + 100).toString().padLeft(3, '0')}';
     final sub = (rng.nextInt(20) + 5) * 1000000;
+    final qty = rng.nextInt(5) + 1;
+    final unitPrice = sub ~/ qty;
     setState(() {
       _invNumCtrl.text = inv;
       _vendorCtrl.text = vendors[rng.nextInt(vendors.length)];
@@ -258,7 +260,7 @@ class _AddInvoiceScreenState extends State<AddInvoiceScreen>
       _subtotalCtrl.text = sub.toString();
       _vatRate = rng.nextBool() ? VatRate.vat10 : VatRate.vat8;
       _items = [
-        InvoiceItem(name: 'Hàng hóa (AI đọc)', quantity: rng.nextInt(5) + 1, unitPrice: sub ~/ (rng.nextInt(3) + 1)),
+        InvoiceItem(name: 'Hàng hóa (AI đọc)', quantity: qty, unitPrice: unitPrice),
       ];
     });
   }
@@ -279,7 +281,7 @@ class _AddInvoiceScreenState extends State<AddInvoiceScreen>
     final priceCtrl = TextEditingController();
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogCtx) => AlertDialog(
         title: const Text('Thêm mặt hàng'),
         content: Column(mainAxisSize: MainAxisSize.min, children: [
           TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Tên hàng hóa *')),
@@ -289,7 +291,7 @@ class _AddInvoiceScreenState extends State<AddInvoiceScreen>
           TextField(controller: priceCtrl, decoration: const InputDecoration(labelText: 'Đơn giá (₫)'), keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly]),
         ]),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Hủy')),
+          TextButton(onPressed: () => Navigator.pop(dialogCtx), child: const Text('Hủy')),
           ElevatedButton(
             onPressed: () {
               final name = nameCtrl.text.trim();
@@ -298,7 +300,7 @@ class _AddInvoiceScreenState extends State<AddInvoiceScreen>
               if (name.isNotEmpty && price > 0) {
                 setState(() => _items.add(InvoiceItem(name: name, quantity: qty, unitPrice: price)));
               }
-              Navigator.pop(context);
+              Navigator.pop(dialogCtx);
             },
             child: const Text('Thêm'),
           ),
@@ -317,25 +319,34 @@ class _AddInvoiceScreenState extends State<AddInvoiceScreen>
       return;
     }
     setState(() => _saving = true);
-    final inv = InvoiceModel(
-      id: const Uuid().v4(),
-      invoiceNumber: _invNumCtrl.text.trim(),
-      vendor: _vendorCtrl.text.trim(),
-      vendorTaxCode: _taxCodeCtrl.text.trim().isEmpty ? null : _taxCodeCtrl.text.trim(),
-      subtotal: subtotal,
-      vatRate: _vatRate,
-      invoiceDate: _invoiceDate,
-      status: InvoiceStatus.pending,
-      items: _items,
-      imagePath: _imagePath,
-      createdAt: DateTime.now(),
-    );
-    await context.read<AppProvider>().addInvoice(inv);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('✓ Đã lưu hóa đơn'), backgroundColor: AppColors.accent, behavior: SnackBarBehavior.floating),
+    try {
+      final inv = InvoiceModel(
+        id: const Uuid().v4(),
+        invoiceNumber: _invNumCtrl.text.trim(),
+        vendor: _vendorCtrl.text.trim(),
+        vendorTaxCode: _taxCodeCtrl.text.trim().isEmpty ? null : _taxCodeCtrl.text.trim(),
+        subtotal: subtotal,
+        vatRate: _vatRate,
+        invoiceDate: _invoiceDate,
+        status: InvoiceStatus.pending,
+        items: _items,
+        imagePath: _imagePath,
+        createdAt: DateTime.now(),
       );
-      context.pop();
+      await context.read<AppProvider>().addInvoice(inv);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('✓ Đã lưu hóa đơn'), backgroundColor: AppColors.accent, behavior: SnackBarBehavior.floating),
+        );
+        context.pop();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Lỗi lưu hóa đơn: $e'), backgroundColor: AppColors.expense),
+        );
+        setState(() => _saving = false);
+      }
     }
   }
 }

@@ -115,20 +115,24 @@ class InvoiceModel {
     return items.map((i) => '${i.name}|||${i.quantity}|||${i.unitPrice}').join('~~~');
   }
 
-  factory InvoiceModel.fromMap(Map<String, dynamic> m) {
-    List<InvoiceItem> items = [];
-    final raw = m['items_json']?.toString() ?? '';
-    if (raw.isNotEmpty) {
-      items = raw.split('~~~').map((s) {
-        final parts = s.split('|||');
-        if (parts.length != 3) return null;
-        return InvoiceItem(
-          name: parts[0],
-          quantity: int.tryParse(parts[1]) ?? 1,
-          unitPrice: int.tryParse(parts[2]) ?? 0,
-        );
-      }).whereType<InvoiceItem>().toList();
+  factory InvoiceModel.fromMap(Map<String, dynamic> m, {List<InvoiceItem>? items}) {
+    List<InvoiceItem> parsedItems = items ?? [];
+
+    if (parsedItems.isEmpty) {
+      final raw = m['items_json']?.toString() ?? '';
+      if (raw.isNotEmpty) {
+        parsedItems = raw.split('~~~').map((s) {
+          final parts = s.split('|||');
+          if (parts.length != 3) return null;
+          return InvoiceItem(
+            name: parts[0],
+            quantity: int.tryParse(parts[1]) ?? 1,
+            unitPrice: int.tryParse(parts[2]) ?? 0,
+          );
+        }).whereType<InvoiceItem>().toList();
+      }
     }
+
     return InvoiceModel(
       id: m['id'],
       invoiceNumber: m['invoice_number'],
@@ -147,7 +151,7 @@ class InvoiceModel {
       ),
       aiConfidence: m['ai_confidence'] != null ? (m['ai_confidence'] as num).toDouble() : null,
       aiNotes: m['ai_notes'],
-      items: items,
+      items: parsedItems,
       imagePath: m['image_path'],
       createdAt: DateTime.parse(m['created_at']),
     );
