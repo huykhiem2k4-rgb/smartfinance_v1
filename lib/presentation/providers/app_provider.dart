@@ -106,7 +106,7 @@ class AppProvider extends ChangeNotifier {
   }
 
   Future<void> _loadInvoices() async {
-    _invoices = await _invRepo.getAll(userId: _filterUserId);
+    _invoices = await _invRepo.getAll();
     notifyListeners();
   }
 
@@ -180,7 +180,7 @@ class AppProvider extends ChangeNotifier {
 
   Future<InvoiceModel?> getInvoice(String id) => _invRepo.getById(id);
 
-  Future<Map<String, int>> getInvoiceStats() => _invRepo.stats(userId: _filterUserId);
+  Future<Map<String, int>> getInvoiceStats() => _invRepo.stats();
 
   void _setLoading(bool v) {
     _isLoading = v;

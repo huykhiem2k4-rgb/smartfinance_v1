@@ -19,7 +19,7 @@ class AddInvoiceScreen extends StatefulWidget {
 }
 
 class _AddInvoiceScreenState extends State<AddInvoiceScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
   final _invNumCtrl = TextEditingController();
   final _vendorCtrl = TextEditingController();
@@ -30,24 +30,30 @@ class _AddInvoiceScreenState extends State<AddInvoiceScreen>
   DateTime _invoiceDate = DateTime.now();
   List<InvoiceItem> _items = [];
   String? _imagePath;
+  Uint8List? _imageBytes;
   bool _scanning = false;
   bool _saving = false;
 
-  late AnimationController _scanAnim;
-  late Animation<double> _scanProgress;
+  late AnimationController _scanLineAnim;
+  late AnimationController _progressAnim;
+  late Animation<double> _scanLineProgress;
+  late Animation<double> _progressValue;
 
   @override
   void initState() {
     super.initState();
-    _scanAnim = AnimationController(vsync: this, duration: const Duration(seconds: 2));
-    _scanProgress = Tween<double>(begin: 0, end: 1).animate(
-      CurvedAnimation(parent: _scanAnim, curve: Curves.easeInOut),
+    _scanLineAnim = AnimationController(vsync: this, duration: const Duration(milliseconds: 800));
+    _scanLineProgress = Tween<double>(begin: 0, end: 1).animate(
+      CurvedAnimation(parent: _scanLineAnim, curve: Curves.easeInOut),
     );
+    _progressAnim = AnimationController(vsync: this, duration: const Duration(seconds: 2));
+    _progressValue = Tween<double>(begin: 0, end: 1).animate(_progressAnim);
   }
 
   @override
   void dispose() {
-    _scanAnim.dispose();
+    _scanLineAnim.dispose();
+    _progressAnim.dispose();
     _invNumCtrl.dispose();
     _vendorCtrl.dispose();
     _taxCodeCtrl.dispose();
@@ -90,7 +96,11 @@ class _AddInvoiceScreenState extends State<AddInvoiceScreen>
                     ),
                   if (_scanning) ...[
                     const SizedBox(height: 8),
-                    _ScanAnimation(animation: _scanProgress),
+                    _ScanAnimation(
+                      progress: _progressValue,
+                      scanLine: _scanLineProgress,
+                      imageBytes: _imageBytes,
+                    ),
                     const SizedBox(height: 8),
                   ],
                   if (!_scanning)
@@ -229,9 +239,19 @@ class _AddInvoiceScreenState extends State<AddInvoiceScreen>
     final picker = ImagePicker();
     final img = await picker.pickImage(source: source, imageQuality: 80);
     if (img == null) return;
-    setState(() { _imagePath = img.path; _scanning = true; });
-    _scanAnim.reset();
-    await _scanAnim.forward();
+    final bytes = await img.readAsBytes();
+    setState(() {
+      _imagePath = img.path;
+      _imageBytes = bytes;
+      _scanning = true;
+    });
+    _scanLineAnim.reset();
+    _progressAnim.reset();
+    _scanLineAnim.repeat(reverse: true);
+    _progressAnim.forward();
+    await Future.delayed(const Duration(seconds: 2));
+    _scanLineAnim.stop();
+    _progressAnim.stop();
     _fillMockData();
     setState(() => _scanning = false);
     if (mounted) {
@@ -328,7 +348,7 @@ class _AddInvoiceScreenState extends State<AddInvoiceScreen>
         subtotal: subtotal,
         vatRate: _vatRate,
         invoiceDate: _invoiceDate,
-        status: InvoiceStatus.pending,
+        status: InvoiceStatus.reviewing,
         items: _items,
         imagePath: _imagePath,
         createdAt: DateTime.now(),
@@ -424,8 +444,10 @@ class _ItemTile extends StatelessWidget {
 }
 
 class _ScanAnimation extends StatelessWidget {
-  final Animation<double> animation;
-  const _ScanAnimation({required this.animation});
+  final Animation<double> progress;
+  final Animation<double> scanLine;
+  final Uint8List? imageBytes;
+  const _ScanAnimation({required this.progress, required this.scanLine, this.imageBytes});
 
   static const _steps = [
     (Icons.image_search, 'Nhận dạng hóa đơn...'),
@@ -438,18 +460,41 @@ class _ScanAnimation extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: animation,
-      builder: (_, __) {
-        final stepIdx = (animation.value * _steps.length).floor().clamp(0, _steps.length - 1);
+      animation: Listenable.merge([progress, scanLine]),
+      builder: (_, _) {
+        final stepIdx = (progress.value * _steps.length).floor().clamp(0, _steps.length - 1);
         return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          LinearProgressIndicator(
-            value: animation.value,
-            backgroundColor: Colors.grey.shade200,
-            valueColor: const AlwaysStoppedAnimation(AppColors.accent),
-            borderRadius: BorderRadius.circular(4),
-            minHeight: 6,
+          // ── Image + scan overlay ──
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: SizedBox(
+              height: 200,
+              width: double.infinity,
+              child: Stack(fit: StackFit.expand, children: [
+                // Image
+                if (imageBytes != null)
+                  Image.memory(imageBytes!, fit: BoxFit.cover, color: Colors.black.withValues(alpha: 0.15), colorBlendMode: BlendMode.darken)
+                else
+                  Container(color: Colors.grey.shade300),
+                // Dark overlay
+                Container(color: Colors.black.withValues(alpha: 0.25)),
+                // Corner brackets
+                CustomPaint(painter: _CornerBracketsPainter(), size: Size.infinite),
+                // Glow scan line
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: CustomPaint(
+                    painter: _ScanLinePainter(lineY: scanLine.value),
+                  ),
+                ),
+              ]),
+            ),
           ),
           const SizedBox(height: 10),
+          // ── Steps ──
           ..._steps.asMap().entries.map((e) {
             final done = e.key < stepIdx;
             final active = e.key == stepIdx;
@@ -474,8 +519,75 @@ class _ScanAnimation extends StatelessWidget {
               ),
             );
           }),
+          const SizedBox(height: 8),
+          // ── Progress bar ──
+          LinearProgressIndicator(
+            value: progress.value,
+            backgroundColor: Colors.grey.shade200,
+            valueColor: const AlwaysStoppedAnimation(AppColors.accent),
+            borderRadius: BorderRadius.circular(4),
+            minHeight: 6,
+          ),
         ]);
       },
     );
   }
+}
+
+class _ScanLinePainter extends CustomPainter {
+  final double lineY;
+  _ScanLinePainter({required this.lineY});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final y = lineY * size.height;
+    final glowHeight = size.height * 0.15;
+    final rect = Rect.fromLTWH(0, y - glowHeight / 2, size.width, glowHeight);
+    final gradient = LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [
+        AppColors.accent.withValues(alpha: 0.0),
+        AppColors.accent.withValues(alpha: 0.5),
+        AppColors.accent,
+        AppColors.accent.withValues(alpha: 0.5),
+        AppColors.accent.withValues(alpha: 0.0),
+      ],
+      stops: const [0.0, 0.25, 0.5, 0.75, 1.0],
+    );
+    final paint = Paint()..shader = gradient.createShader(rect);
+    canvas.drawRect(rect, paint);
+  }
+
+  @override
+  bool shouldRepaint(_ScanLinePainter old) => old.lineY != lineY;
+}
+
+class _CornerBracketsPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = AppColors.accent
+      ..strokeWidth = 3
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    const len = 20.0;
+    const pad = 10.0;
+
+    // Top-left
+    canvas.drawLine(const Offset(pad, pad), Offset(pad + len, pad), paint);
+    canvas.drawLine(const Offset(pad, pad), Offset(pad, pad + len), paint);
+    // Top-right
+    canvas.drawLine(Offset(size.width - pad, pad), Offset(size.width - pad - len, pad), paint);
+    canvas.drawLine(Offset(size.width - pad, pad), Offset(size.width - pad, pad + len), paint);
+    // Bottom-left
+    canvas.drawLine(Offset(pad, size.height - pad), Offset(pad + len, size.height - pad), paint);
+    canvas.drawLine(Offset(pad, size.height - pad), Offset(pad, size.height - pad - len), paint);
+    // Bottom-right
+    canvas.drawLine(Offset(size.width - pad, size.height - pad), Offset(size.width - pad - len, size.height - pad), paint);
+    canvas.drawLine(Offset(size.width - pad, size.height - pad), Offset(size.width - pad, size.height - pad - len), paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

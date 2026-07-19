@@ -7,6 +7,7 @@ import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
 import 'presentation/providers/app_provider.dart';
 import 'presentation/providers/auth_provider.dart';
+import 'presentation/providers/connectivity_provider.dart';
 import 'presentation/providers/theme_provider.dart';
 
 void main() async {
@@ -22,6 +23,7 @@ void main() async {
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
         ChangeNotifierProvider.value(value: authProvider),
         ChangeNotifierProvider(create: (_) => AppProvider()),
+        ChangeNotifierProvider(create: (_) => ConnectivityProvider()),
       ],
       child: SmartFinanceApp(authProvider: authProvider),
     ),
@@ -48,6 +50,9 @@ class _SmartFinanceAppState extends State<SmartFinanceApp> {
         final appProv = context.read<AppProvider>();
         appProv.setUser(auth.userId, isAdmin: auth.isAdmin);
         await appProv.loadAll();
+      }
+      if (context.mounted) {
+        context.read<ConnectivityProvider>().init(context);
       }
     });
   }

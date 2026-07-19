@@ -6,6 +6,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import '../../providers/app_provider.dart';
+import '../../providers/auth_provider.dart';
 import '../../../data/models/invoice_model.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/formatters.dart';
@@ -219,7 +220,7 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen>
         title: Text(inv.invoiceNumber),
         actions: [
           IconButton(icon: const Icon(Icons.picture_as_pdf, color: Colors.white), onPressed: _exportPdf, tooltip: 'Xuất PDF'),
-          if (inv.status == InvoiceStatus.pending)
+          if (inv.status == InvoiceStatus.reviewing && context.read<AuthProvider>().isAdmin)
             TextButton.icon(
               icon: const Icon(Icons.psychology, color: Colors.white),
               label: const Text('Kiểm tra AI', style: TextStyle(color: Colors.white)),
@@ -320,7 +321,7 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen>
                   )),
                 ],
 
-                if (inv.status == InvoiceStatus.reviewing) ...[
+                if (inv.status == InvoiceStatus.reviewing && context.read<AuthProvider>().isAdmin) ...[
                   const SizedBox(height: 16),
                   Row(children: [
                     Expanded(child: ElevatedButton.icon(

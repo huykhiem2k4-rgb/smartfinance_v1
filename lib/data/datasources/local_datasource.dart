@@ -462,6 +462,16 @@ class LocalDatasource {
     return invoices;
   }
 
+  Future<List<Map<String, dynamic>>> getInvoicesRaw() async {
+    final d = await db;
+    return d.query('invoices', orderBy: 'created_at DESC');
+  }
+
+  Future<List<Map<String, dynamic>>> getTransactionsRaw() async {
+    final d = await db;
+    return d.query('transactions', orderBy: 'date DESC');
+  }
+
   Future<InvoiceModel?> getInvoice(String id) async {
     final d = await db;
     final rows = await d.query('invoices', where: 'id = ?', whereArgs: [id]);
