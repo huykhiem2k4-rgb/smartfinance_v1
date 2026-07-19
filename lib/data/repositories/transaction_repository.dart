@@ -17,15 +17,15 @@ class TransactionRepository {
     TransactionType? type,
     String? userId,
   }) async {
+    final localData = await _local.queryTransactions(from: from, to: to, type: type, userId: userId);
     if (await ConnectivityHelper.isOnline) {
       try {
-        final data = await _cloud.queryTransactions(
-          from: from, to: to, type: type, userId: userId,
-        );
-        return data;
+        final cloudData = await _cloud.queryTransactions(from: from, to: to, type: type, userId: userId);
+        final cloudIds = cloudData.map((e) => e.id).toSet();
+        return [...cloudData, ...localData.where((l) => !cloudIds.contains(l.id))];
       } catch (_) {}
     }
-    return _local.queryTransactions(from: from, to: to, type: type, userId: userId);
+    return localData;
   }
 
   Future<TransactionModel?> getById(String id) async {
@@ -33,38 +33,33 @@ class TransactionRepository {
   }
 
   Future<void> add(TransactionModel t, String userId) async {
+    await _local.insertTransaction(t, userId);
     if (await ConnectivityHelper.isOnline) {
       try {
         await _cloud.insertTransaction(t, userId);
       } catch (_) {}
     }
-    await _local.insertTransaction(t, userId);
   }
 
   Future<void> update(TransactionModel t) async {
+    await _local.updateTransaction(t);
     if (await ConnectivityHelper.isOnline) {
       try {
         await _cloud.updateTransaction(t);
       } catch (_) {}
     }
-    await _local.updateTransaction(t);
   }
 
   Future<void> remove(String id) async {
+    await _local.deleteTransaction(id);
     if (await ConnectivityHelper.isOnline) {
       try {
         await _cloud.deleteTransaction(id);
       } catch (_) {}
     }
-    await _local.deleteTransaction(id);
   }
 
   Future<List<Map<String, dynamic>>> monthlyTrend(int months, {String? userId}) async {
-    if (await ConnectivityHelper.isOnline) {
-      try {
-        return await _cloud.monthlyTrend(months, userId: userId);
-      } catch (_) {}
-    }
     return _local.monthlyTrend(months, userId: userId);
   }
 
@@ -74,20 +69,33 @@ class TransactionRepository {
     DateTime? to,
     String? userId,
   }) async {
-    if (await ConnectivityHelper.isOnline) {
-      try {
-        return await _cloud.categoryBreakdown(type, from: from, to: to, userId: userId);
-      } catch (_) {}
-    }
     return _local.categoryBreakdown(type, from: from, to: to, userId: userId);
   }
 
   Future<Map<String, int>> summaryForPeriod(DateTime from, DateTime to, {String? userId}) async {
-    if (await ConnectivityHelper.isOnline) {
-      try {
-        return await _cloud.summaryForPeriod(from, to, userId: userId);
-      } catch (_) {}
-    }
     return _local.summaryForPeriod(from, to, userId: userId);
+  }
+
+  Future<void> syncToCloud(TransactionModel t) async {
+    if (!await ConnectivityHelper.isOnline) return;
+    try {
+      final rows = await _local.getTransactionsRaw();
+      final match = rows.where((r) => r['id'] == t.id);
+      if (match.isEmpty) return;
+      final userId = match.first['user_id'] as String? ?? 'u_admin';
+      await _cloud.insertTransaction(t, userId);
+    } catch (_) {}
+  }
+
+  Future<void> syncAllToCloud() async {
+    if (!await ConnectivityHelper.isOnline) return;
+    try {
+      final rows = await _local.getTransactionsRaw();
+      for (final row in rows) {
+        final tx = TransactionModel.fromMap(row);
+        final userId = row['user_id'] as String? ?? 'u_admin';
+        await _cloud.insertTransaction(tx, userId);
+      }
+    } catch (_) {}
   }
 }
