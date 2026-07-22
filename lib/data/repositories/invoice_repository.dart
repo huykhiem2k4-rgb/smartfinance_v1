@@ -17,7 +17,9 @@ class InvoiceRepository {
       try {
         final cloudData = await _cloud.queryInvoices(status: status, userId: userId);
         final cloudIds = cloudData.map((e) => e.id).toSet();
-        return [...cloudData, ...localData.where((l) => !cloudIds.contains(l.id))];
+        final merged = [...cloudData, ...localData.where((l) => !cloudIds.contains(l.id))];
+        merged.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+        return merged;
       } catch (_) {}
     }
     return localData;
@@ -92,6 +94,24 @@ class InvoiceRepository {
         final inv = InvoiceModel.fromMap(row, items: items);
         final userId = row['user_id'] as String? ?? 'u_admin';
         await _cloud.insertInvoice(inv, userId);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> syncFromCloud() async {
+    if (!await ConnectivityHelper.isOnline) return;
+    try {
+      final cloudRows = await _cloud.queryAllInvoicesRaw();
+      for (final row in cloudRows) {
+        final items = (row['items'] as List?)?.map((e) => InvoiceItem(
+          name: e['name'] as String,
+          quantity: (e['quantity'] as num).toInt(),
+          unitPrice: (e['unit_price'] as num).toInt(),
+        )).toList() ?? [];
+        row['items_json'] = null;
+        final inv = InvoiceModel.fromMap(row, items: items);
+        final userId = row['user_id'] as String? ?? 'u_admin';
+        await _local.insertInvoice(inv, userId);
       }
     } catch (_) {}
   }
