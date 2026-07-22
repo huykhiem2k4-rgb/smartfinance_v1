@@ -31,8 +31,8 @@ class _TransactionsScreenState extends State<TransactionsScreen>
     super.dispose();
   }
 
-  void _editTransaction(TransactionModel t) {
-    context.push('/transactions/edit/${t.id}');
+  void _viewTransaction(TransactionModel t) {
+    context.push('/transactions/${t.id}');
   }
 
   @override
@@ -62,8 +62,8 @@ class _TransactionsScreenState extends State<TransactionsScreen>
           return TabBarView(
             controller: _tabs,
             children: [
-              _TxList(transactions: p.transactions.where((t) => t.type == TransactionType.income).toList(), onDelete: p.deleteTransaction, onEdit: (t) => _editTransaction(t)),
-              _TxList(transactions: p.transactions.where((t) => t.type == TransactionType.expense).toList(), onDelete: p.deleteTransaction, onEdit: (t) => _editTransaction(t)),
+              _TxList(transactions: p.transactions.where((t) => t.type == TransactionType.income).toList(), onDelete: p.deleteTransaction, onTap: (t) => _viewTransaction(t)),
+              _TxList(transactions: p.transactions.where((t) => t.type == TransactionType.expense).toList(), onDelete: p.deleteTransaction, onTap: (t) => _viewTransaction(t)),
             ],
           );
         },
@@ -75,9 +75,9 @@ class _TransactionsScreenState extends State<TransactionsScreen>
 class _TxList extends StatelessWidget {
   final List<TransactionModel> transactions;
   final Future<void> Function(String) onDelete;
-  final void Function(TransactionModel) onEdit;
+  final void Function(TransactionModel) onTap;
 
-  const _TxList({required this.transactions, required this.onDelete, required this.onEdit});
+  const _TxList({required this.transactions, required this.onDelete, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -97,7 +97,7 @@ class _TxList extends StatelessWidget {
       itemBuilder: (_, i) => TransactionTile(
         transaction: transactions[i],
         onDelete: () => onDelete(transactions[i].id),
-        onTap: () => onEdit(transactions[i]),
+        onTap: () => onTap(transactions[i]),
       ),
     );
   }

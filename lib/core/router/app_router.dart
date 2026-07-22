@@ -8,6 +8,7 @@ import '../../presentation/screens/dashboard/dashboard_screen.dart';
 import '../../presentation/screens/transactions/transactions_screen.dart';
 import '../../presentation/screens/transactions/add_transaction_screen.dart';
 import '../../presentation/screens/transactions/edit_transaction_screen.dart';
+import '../../presentation/screens/transactions/transaction_detail_screen.dart';
 import '../../presentation/screens/invoices/invoices_screen.dart';
 import '../../presentation/screens/invoices/add_invoice_screen.dart';
 import '../../presentation/screens/invoices/invoice_detail_screen.dart';
@@ -114,6 +115,11 @@ GoRouter createRouter(AuthProvider auth) {
         path: '/transactions/edit/:id',
         parentNavigatorKey: rootKey,
         builder: (ctx, s) => EditTransactionScreen(transactionId: s.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: '/transactions/:id',
+        parentNavigatorKey: rootKey,
+        builder: (ctx, s) => TransactionDetailScreen(transactionId: s.pathParameters['id']!),
       ),
       GoRoute(
         path: '/invoices/add',

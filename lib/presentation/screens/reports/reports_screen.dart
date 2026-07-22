@@ -146,7 +146,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                         child: isWide
                             ? _InvoiceStatsTable(stats: _invoiceStats)
                             : Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
-                                _InvStat('Chờ duyệt', _invoiceStats['pending'] ?? 0, Colors.grey),
+                                _InvStat('Chờ duyệt', (_invoiceStats['pending'] ?? 0) + (_invoiceStats['reviewing'] ?? 0), Colors.grey),
                                 _InvStat('Đã duyệt', _invoiceStats['approved'] ?? 0, AppColors.income),
                                 _InvStat('Từ chối', _invoiceStats['rejected'] ?? 0, AppColors.expense),
                               ]),
@@ -157,7 +157,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                       if (isWide) ...[
                         _Card(
                           title: 'Chi tiết giao dịch',
-                          child: _TransactionDataTable(transactions: p.transactions),
+                          child: _TransactionDataTable(transactions: p.transactions.take(8).toList()),
                         ),
                         const SizedBox(height: 24),
                       ],
@@ -222,7 +222,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         pw.TableHelper.fromTextArray(
           headers: ['Trạng thái', 'Số lượng'],
           data: [
-            ['Chờ duyệt', '${_invoiceStats['pending'] ?? 0}'],
+            ['Chờ duyệt', '${(_invoiceStats['pending'] ?? 0) + (_invoiceStats['reviewing'] ?? 0)}'],
             ['Đã duyệt', '${_invoiceStats['approved'] ?? 0}'],
             ['Từ chối', '${_invoiceStats['rejected'] ?? 0}'],
           ],
@@ -346,7 +346,7 @@ class _InvoiceStatsTable extends StatelessWidget {
           DataColumn(label: Text('Số lượng'), numeric: true),
         ],
         rows: [
-          _statRow('Chờ duyệt', stats['pending'] ?? 0, Colors.grey),
+          _statRow('Chờ duyệt', (stats['pending'] ?? 0) + (stats['reviewing'] ?? 0), Colors.grey),
           _statRow('Đã duyệt', stats['approved'] ?? 0, AppColors.income),
           _statRow('Từ chối', stats['rejected'] ?? 0, AppColors.expense),
         ],

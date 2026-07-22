@@ -393,6 +393,23 @@ class SupabaseDatasource {
 
   // ── HELPERS ──────────────────────────────────────────────────
 
+  Future<List<Map<String, dynamic>>> queryAllTransactionsRaw() async {
+    final response = await _client.from('transactions').select().order('date', ascending: false);
+    return (response as List).map((m) => Map<String, dynamic>.from(m)).toList();
+  }
+
+  Future<List<Map<String, dynamic>>> queryAllInvoicesRaw() async {
+    final response = await _client.from('invoices').select().order('created_at', ascending: false);
+    final result = <Map<String, dynamic>>[];
+    for (final m in response as List) {
+      final row = Map<String, dynamic>.from(m);
+      final items = await getInvoiceItems(row['id'] as String);
+      row['items'] = items;
+      result.add(row);
+    }
+    return result;
+  }
+
   InvoiceModel _invoiceFromRow(Map<String, dynamic> m, {List<InvoiceItem>? items}) {
     return InvoiceModel(
       id: m['id'],

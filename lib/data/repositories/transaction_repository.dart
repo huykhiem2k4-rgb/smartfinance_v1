@@ -22,7 +22,9 @@ class TransactionRepository {
       try {
         final cloudData = await _cloud.queryTransactions(from: from, to: to, type: type, userId: userId);
         final cloudIds = cloudData.map((e) => e.id).toSet();
-        return [...cloudData, ...localData.where((l) => !cloudIds.contains(l.id))];
+        final merged = [...cloudData, ...localData.where((l) => !cloudIds.contains(l.id))];
+        merged.sort((a, b) => b.date.compareTo(a.date));
+        return merged;
       } catch (_) {}
     }
     return localData;
@@ -95,6 +97,18 @@ class TransactionRepository {
         final tx = TransactionModel.fromMap(row);
         final userId = row['user_id'] as String? ?? 'u_admin';
         await _cloud.insertTransaction(tx, userId);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> syncFromCloud() async {
+    if (!await ConnectivityHelper.isOnline) return;
+    try {
+      final cloudRows = await _cloud.queryAllTransactionsRaw();
+      for (final row in cloudRows) {
+        final tx = TransactionModel.fromMap(row);
+        final userId = row['user_id'] as String? ?? 'u_admin';
+        await _local.insertTransaction(tx, userId);
       }
     } catch (_) {}
   }

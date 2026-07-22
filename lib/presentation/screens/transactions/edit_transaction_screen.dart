@@ -209,7 +209,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
       context: context,
       initialDate: _date,
       firstDate: DateTime(2020),
-      lastDate: DateTime(2030),
+      lastDate: DateTime.now(),
     );
     if (picked != null) setState(() => _date = picked);
   }
