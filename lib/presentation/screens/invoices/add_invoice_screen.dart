@@ -30,6 +30,7 @@ class _AddInvoiceScreenState extends State<AddInvoiceScreen>
   DateTime _invoiceDate = DateTime.now();
   List<InvoiceItem> _items = [];
   String? _imagePath;
+  String? _selectedPartnerId;
   Uint8List? _imageBytes;
   bool _scanning = false;
   bool _saving = false;
@@ -129,6 +130,35 @@ class _AddInvoiceScreenState extends State<AddInvoiceScreen>
               controller: _invNumCtrl,
               decoration: const InputDecoration(labelText: 'Số hóa đơn *', prefixIcon: Icon(Icons.receipt)),
               validator: Validators.invoiceNumber,
+            ),
+            const SizedBox(height: 12),
+
+            // ── Partner dropdown ──
+            Consumer<AppProvider>(
+              builder: (ctx, p, _) {
+                final suppliers = p.partners.where((p) => p.isSupplier).toList();
+                return DropdownButtonFormField<String>(
+                  value: _selectedPartnerId,
+                  decoration: const InputDecoration(labelText: 'Nhà cung cấp *', prefixIcon: Icon(Icons.business)),
+                  items: [
+                    const DropdownMenuItem(value: null, child: Text('-- Chọn nhà cung cấp --')),
+                    ...suppliers.map((p) => DropdownMenuItem(
+                      value: p.partnerId,
+                      child: Text(p.partnerName),
+                    )),
+                  ],
+                  onChanged: (v) {
+                    setState(() {
+                      _selectedPartnerId = v;
+                      if (v != null) {
+                        final partner = suppliers.firstWhere((p) => p.partnerId == v);
+                        _vendorCtrl.text = partner.partnerName;
+                        _taxCodeCtrl.text = partner.taxCode ?? '';
+                      }
+                    });
+                  },
+                );
+              },
             ),
             const SizedBox(height: 12),
 
@@ -340,17 +370,20 @@ class _AddInvoiceScreenState extends State<AddInvoiceScreen>
     }
     setState(() => _saving = true);
     try {
+      final vatAmount = (subtotal * _vatRate.rate).round();
       final inv = InvoiceModel(
         id: const Uuid().v4(),
         invoiceNumber: _invNumCtrl.text.trim(),
-        vendor: _vendorCtrl.text.trim(),
-        vendorTaxCode: _taxCodeCtrl.text.trim().isEmpty ? null : _taxCodeCtrl.text.trim(),
+        partnerId: _selectedPartnerId,
         subtotal: subtotal,
         vatRate: _vatRate,
+        vatAmount: vatAmount,
+        totalAmount: subtotal + vatAmount,
         invoiceDate: _invoiceDate,
-        status: InvoiceStatus.reviewing,
+        status: InvoiceStatus.pending,
         items: _items,
         imagePath: _imagePath,
+        ocrText: _vendorCtrl.text.trim(),
         createdAt: DateTime.now(),
       );
       await context.read<AppProvider>().addInvoice(inv);

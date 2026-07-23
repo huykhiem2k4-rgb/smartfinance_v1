@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../presentation/providers/auth_provider.dart';
 import '../../presentation/screens/auth/login_screen.dart';
-import '../../presentation/screens/auth/register_screen.dart';
 import '../../presentation/screens/admin/admin_screen.dart';
+import '../../presentation/screens/admin/category_management_screen.dart';
 import '../../presentation/screens/dashboard/dashboard_screen.dart';
 import '../../presentation/screens/transactions/transactions_screen.dart';
 import '../../presentation/screens/transactions/add_transaction_screen.dart';
@@ -13,6 +13,9 @@ import '../../presentation/screens/invoices/invoices_screen.dart';
 import '../../presentation/screens/invoices/add_invoice_screen.dart';
 import '../../presentation/screens/invoices/invoice_detail_screen.dart';
 import '../../presentation/screens/reports/reports_screen.dart';
+import '../../presentation/screens/admin/partner_management_screen.dart';
+import '../../presentation/screens/admin/activity_log_screen.dart';
+import '../../presentation/screens/notifications/notification_screen.dart';
 import '../../presentation/screens/main_shell.dart';
 final RouteObserver<ModalRoute> routeObserver = RouteObserver<ModalRoute>();
 
@@ -34,7 +37,7 @@ GoRouter createRouter(AuthProvider auth) {
         return isLoggedIn ? '/dashboard' : null;
       }
       // Admin route chỉ dành cho admin
-      if (path == '/admin' && !auth.isAdmin) return '/dashboard';
+      if (path.startsWith('/admin') && !auth.isAdmin) return '/dashboard';
       // Mọi route khác cần đăng nhập
       if (!isLoggedIn) return '/login';
       return null;
@@ -80,17 +83,18 @@ GoRouter createRouter(AuthProvider auth) {
         parentNavigatorKey: rootKey,
         builder: (ctx, s) => const LoginScreen(),
       ),
-      GoRoute(
-        path: '/register',
-        parentNavigatorKey: rootKey,
-        builder: (ctx, s) => const RegisterScreen(),
-      ),
+
 
       // Admin route (không có shell)
       GoRoute(
         path: '/admin',
         parentNavigatorKey: rootKey,
         builder: (ctx, s) => const AdminScreen(),
+      ),
+      GoRoute(
+        path: '/admin/categories',
+        parentNavigatorKey: rootKey,
+        builder: (ctx, s) => const CategoryManagementScreen(),
       ),
 
       // Main shell (4 tab)
@@ -130,6 +134,21 @@ GoRouter createRouter(AuthProvider auth) {
         path: '/invoices/:id',
         parentNavigatorKey: rootKey,
         builder: (ctx, s) => InvoiceDetailScreen(invoiceId: s.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: '/notifications',
+        parentNavigatorKey: rootKey,
+        builder: (ctx, s) => const NotificationScreen(),
+      ),
+      GoRoute(
+        path: '/admin/logs',
+        parentNavigatorKey: rootKey,
+        builder: (ctx, s) => const ActivityLogScreen(),
+      ),
+      GoRoute(
+        path: '/partners',
+        parentNavigatorKey: rootKey,
+        builder: (ctx, s) => const PartnerManagementScreen(),
       ),
     ],
   );

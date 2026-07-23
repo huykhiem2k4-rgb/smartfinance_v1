@@ -66,7 +66,7 @@ class _InvoicesScreenState extends State<InvoicesScreen>
       body: Consumer<AppProvider>(
         builder: (ctx, p, _) {
           final all = p.invoices;
-          final pending = all.where((i) => i.status == InvoiceStatus.pending || i.status == InvoiceStatus.reviewing).toList();
+          final pending = all.where((i) => i.status == InvoiceStatus.pending).toList();
           final approved = all.where((i) => i.status == InvoiceStatus.approved).toList();
           final rejected = all.where((i) => i.status == InvoiceStatus.rejected).toList();
           return TabBarView(
@@ -145,7 +145,7 @@ class _InvoiceDataTable extends StatelessWidget {
               onSelectChanged: (_) => context.push('/invoices/${inv.id}'),
               cells: [
                 DataCell(Text(inv.invoiceNumber, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13))),
-                DataCell(Text(inv.vendor, style: const TextStyle(fontSize: 13))),
+                DataCell(Text(inv.ocrText ?? 'Không rõ', style: const TextStyle(fontSize: 13))),
                 DataCell(_StatusBadge(label: inv.status.label, color: statusColor, icon: statusIcon)),
                 DataCell(Text(
                   Formatters.currency(inv.totalAmount),
@@ -164,8 +164,8 @@ class _InvoiceDataTable extends StatelessWidget {
     switch (s) {
       case InvoiceStatus.approved: return AppColors.income;
       case InvoiceStatus.rejected: return AppColors.expense;
-      case InvoiceStatus.reviewing: return AppColors.warning;
-      case InvoiceStatus.pending: return Colors.grey;
+      case InvoiceStatus.draft: return Colors.grey;
+      case InvoiceStatus.pending: return AppColors.warning;
     }
   }
 
@@ -173,7 +173,7 @@ class _InvoiceDataTable extends StatelessWidget {
     switch (s) {
       case InvoiceStatus.approved: return Icons.check_circle;
       case InvoiceStatus.rejected: return Icons.cancel;
-      case InvoiceStatus.reviewing: return Icons.autorenew;
+      case InvoiceStatus.draft: return Icons.edit_note;
       case InvoiceStatus.pending: return Icons.hourglass_empty;
     }
   }
@@ -187,8 +187,8 @@ class _InvoiceCard extends StatelessWidget {
     switch (invoice.status) {
       case InvoiceStatus.approved:  return AppColors.income;
       case InvoiceStatus.rejected:  return AppColors.expense;
-      case InvoiceStatus.reviewing: return AppColors.warning;
-      case InvoiceStatus.pending:   return Colors.grey;
+      case InvoiceStatus.draft:     return Colors.grey;
+      case InvoiceStatus.pending:   return AppColors.warning;
     }
   }
 
@@ -196,7 +196,7 @@ class _InvoiceCard extends StatelessWidget {
     switch (invoice.status) {
       case InvoiceStatus.approved:  return Icons.check_circle;
       case InvoiceStatus.rejected:  return Icons.cancel;
-      case InvoiceStatus.reviewing: return Icons.autorenew;
+      case InvoiceStatus.draft:     return Icons.edit_note;
       case InvoiceStatus.pending:   return Icons.hourglass_empty;
     }
   }
@@ -225,7 +225,7 @@ class _InvoiceCard extends StatelessWidget {
               _StatusBadge(label: invoice.status.label, color: _statusColor, icon: _statusIcon),
             ]),
             const SizedBox(height: 6),
-            Text(invoice.vendor, style: const TextStyle(color: Colors.grey, fontSize: 13)),
+            Text(invoice.ocrText ?? 'Không rõ', style: const TextStyle(color: Colors.grey, fontSize: 13)),
             const SizedBox(height: 8),
             Row(children: [
               Text(Formatters.currency(invoice.totalAmount),
@@ -235,19 +235,9 @@ class _InvoiceCard extends StatelessWidget {
               const Spacer(),
               Text(Formatters.date(invoice.invoiceDate), style: const TextStyle(fontSize: 12, color: Colors.grey)),
             ]),
-            if (invoice.aiConfidence != null) ...[
+            if (invoice.ocrText != null && invoice.ocrText!.isNotEmpty) ...[
               const SizedBox(height: 8),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: LinearProgressIndicator(
-                  value: invoice.aiConfidence,
-                  backgroundColor: Colors.grey.shade200,
-                  valueColor: AlwaysStoppedAnimation(_statusColor),
-                  minHeight: 5,
-                ),
-              ),
-              const SizedBox(height: 3),
-              Text('AI: ${(invoice.aiConfidence! * 100).toStringAsFixed(0)}% tin cậy',
+              Text('OCR: ${invoice.ocrText}',
                   style: TextStyle(fontSize: 11, color: _statusColor, fontWeight: FontWeight.w500)),
             ],
           ]),

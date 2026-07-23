@@ -132,6 +132,14 @@ class _UserMenu extends StatelessWidget {
       onSelected: (v) async {
         if (v == 'admin') {
           context.push('/admin');
+        } else if (v == 'categories') {
+          context.push('/admin/categories');
+        } else if (v == 'partners') {
+          context.push('/partners');
+        } else if (v == 'notifications') {
+          context.push('/notifications');
+        } else if (v == 'logs') {
+          context.push('/admin/logs');
         } else if (v == 'logout') {
           final confirm = await showDialog<bool>(
             context: context,
@@ -168,7 +176,7 @@ class _UserMenu extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
-                  color: user.role.name == 'admin'
+                  color: user.role == UserRole.owner
                       ? AppColors.primary.withValues(alpha: 0.12)
                       : Colors.orange.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(10),
@@ -178,7 +186,7 @@ class _UserMenu extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
-                    color: user.role.name == 'admin' ? AppColors.primary : Colors.orange,
+                    color: user.role == UserRole.owner ? AppColors.primary : Colors.orange,
                   ),
                 ),
               ),
@@ -186,13 +194,47 @@ class _UserMenu extends StatelessWidget {
           ),
         ),
         const PopupMenuDivider(),
-        if (auth.isAdmin)
+        if (auth.isAdmin) ...[
           const PopupMenuItem(
             value: 'admin',
             child: Row(children: [
               Icon(Icons.admin_panel_settings, size: 18, color: AppColors.primary),
               SizedBox(width: 10),
               Text('Quản trị hệ thống'),
+            ]),
+          ),
+          const PopupMenuItem(
+            value: 'categories',
+            child: Row(children: [
+              Icon(Icons.category_outlined, size: 18, color: AppColors.primary),
+              SizedBox(width: 10),
+              Text('Quản lý danh mục'),
+            ]),
+          ),
+          const PopupMenuItem(
+            value: 'partners',
+            child: Row(children: [
+              Icon(Icons.people_outline, size: 18, color: AppColors.primary),
+              SizedBox(width: 10),
+              Text('Quản lý đối tác'),
+            ]),
+          ),
+        ],
+        const PopupMenuItem(
+          value: 'notifications',
+          child: Row(children: [
+            Icon(Icons.notifications_outlined, size: 18, color: AppColors.primary),
+            SizedBox(width: 10),
+            Text('Thông báo'),
+          ]),
+        ),
+        if (auth.isAdmin)
+          const PopupMenuItem(
+            value: 'logs',
+            child: Row(children: [
+              Icon(Icons.history, size: 18, color: AppColors.primary),
+              SizedBox(width: 10),
+              Text('Nhật ký hoạt động'),
             ]),
           ),
         const PopupMenuItem(

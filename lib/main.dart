@@ -5,8 +5,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'config/supabase_config.dart';
 import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
-import 'data/repositories/transaction_repository.dart';
-import 'data/repositories/invoice_repository.dart';
 import 'presentation/providers/app_provider.dart';
 import 'presentation/providers/auth_provider.dart';
 import 'presentation/providers/connectivity_provider.dart';
@@ -51,8 +49,6 @@ class _SmartFinanceAppState extends State<SmartFinanceApp> {
       if (auth.isLoggedIn && context.mounted) {
         final appProv = context.read<AppProvider>();
         appProv.setUser(auth.userId, isAdmin: auth.isAdmin);
-        await TransactionRepository().syncFromCloud();
-        await InvoiceRepository().syncFromCloud();
         await appProv.loadAll();
       }
       if (context.mounted) {

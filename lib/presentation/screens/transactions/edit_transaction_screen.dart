@@ -24,7 +24,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
   late final TextEditingController _descCtrl;
 
   late TransactionType _type;
-  late TransactionCategory _category;
+  String? _selectedCategoryId;
   late DateTime _date;
   String? _imagePath;
   bool _saving = false;
@@ -38,7 +38,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
     _amountCtrl = TextEditingController();
     _descCtrl = TextEditingController();
     _type = TransactionType.income;
-    _category = TransactionCategory.sales;
+    _selectedCategoryId = null;
     _date = DateTime.now();
     _loadTransaction();
   }
@@ -60,7 +60,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
       _amountCtrl.text = t.amount.toString();
       _descCtrl.text = t.description ?? '';
       _type = t.type;
-      _category = t.category;
+      _selectedCategoryId = t.categoryId;
       _date = t.date;
       _imagePath = t.imagePath;
       _loading = false;
@@ -97,12 +97,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
               selected: {_type},
               onSelectionChanged: (s) => setState(() {
                 _type = s.first;
-                // If category doesn't match new type, reset to default
-                if (_category.type != _type) {
-                  _category = _type == TransactionType.income
-                      ? TransactionCategory.sales
-                      : TransactionCategory.salary;
-                }
+                _selectedCategoryId = null;
               }),
               segments: const [
                 ButtonSegment(value: TransactionType.income, label: Text('Thu tiền'), icon: Icon(Icons.add_circle_outline)),
@@ -142,16 +137,24 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
               ),
             const SizedBox(height: 12),
 
-            // Category
-            DropdownButtonFormField<TransactionCategory>(
-              value: _category,
-              decoration: const InputDecoration(labelText: 'Danh mục *', prefixIcon: Icon(Icons.category)),
-              items: TransactionCategory.values
-                  .where((c) => c.type == _type)
-                  .map((c) => DropdownMenuItem(value: c, child: Text(c.label)))
-                  .toList(),
-              onChanged: (v) => setState(() => _category = v!),
-              validator: (v) => v == null ? 'Chọn danh mục' : null,
+            // Category from DB
+            Consumer<AppProvider>(
+              builder: (ctx, p, _) {
+                final filtered = p.categories.where((c) =>
+                  (_type == TransactionType.income && c.isIncome) ||
+                  (_type == TransactionType.expense && c.isExpense)
+                ).toList();
+                return DropdownButtonFormField<String>(
+                  value: _selectedCategoryId,
+                  decoration: const InputDecoration(labelText: 'Danh mục *', prefixIcon: Icon(Icons.category)),
+                  items: filtered.map((c) => DropdownMenuItem(
+                    value: c.categoryId,
+                    child: Text(c.categoryName),
+                  )).toList(),
+                  onChanged: (v) => setState(() => _selectedCategoryId = v),
+                  validator: (v) => v == null ? 'Chọn danh mục' : null,
+                );
+              },
             ),
             const SizedBox(height: 12),
 
@@ -226,11 +229,25 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
       return;
     }
     try {
+      final catMap = {
+        'cat_income_sales': TransactionCategory.sales,
+        'cat_income_service': TransactionCategory.serviceRevenue,
+        'cat_income_invest': TransactionCategory.investment,
+        'cat_income_other': TransactionCategory.otherIncome,
+        'cat_expense_salary': TransactionCategory.salary,
+        'cat_expense_rent': TransactionCategory.rent,
+        'cat_expense_util': TransactionCategory.utilities,
+        'cat_expense_supply': TransactionCategory.supplies,
+        'cat_expense_mkt': TransactionCategory.marketing,
+        'cat_expense_tax': TransactionCategory.tax,
+        'cat_expense_other': TransactionCategory.otherExpense,
+      };
+      final txCategory = catMap[_selectedCategoryId] ?? TransactionCategory.otherExpense;
       final t = _transaction!.copyWith(
         title: _titleCtrl.text.trim(),
         amount: amount,
         type: _type,
-        category: _category,
+        category: txCategory,
         description: _descCtrl.text.trim().isEmpty ? null : _descCtrl.text.trim(),
         date: _date,
         imagePath: _imagePath,

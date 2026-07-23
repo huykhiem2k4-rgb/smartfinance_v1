@@ -3,6 +3,9 @@ import 'package:uuid/uuid.dart';
 import '../models/transaction_model.dart';
 import '../models/invoice_model.dart';
 import '../models/user_model.dart';
+import '../models/category_model.dart';
+import '../models/partner_model.dart';
+import '../models/notification_model.dart';
 
 class SupabaseDatasource {
   static final SupabaseDatasource _instance = SupabaseDatasource._internal();
@@ -29,7 +32,7 @@ class SupabaseDatasource {
       password: password,
       data: {
         'username': username,
-        'role': 'user',
+        'role': 'ACCOUNTANT',
         'full_name': fullName,
       },
     );
@@ -44,19 +47,32 @@ class SupabaseDatasource {
     final authUser = _auth.currentUser;
     if (authUser == null) return null;
 
-    final metadata = authUser.userMetadata ?? {};
-    final username = metadata['username'] as String? ?? authUser.email?.split('@').first ?? '';
-    final roleStr = metadata['role'] as String? ?? 'user';
-    final fullName = metadata['full_name'] as String?;
+    // Query bảng users trong Supabase để lấy role thực tế
+    try {
+      final dbUser = await _client
+          .from('users')
+          .select()
+          .eq('id', authUser.id)
+          .maybeSingle();
+      if (dbUser != null) {
+        return UserModel.fromSupabase(dbUser);
+      }
+    } catch (_) {}
 
-    return UserModel(
-      id: authUser.id,
-      username: username,
-      passwordHash: '',
-      role: roleStr == 'admin' ? UserRole.admin : UserRole.user,
-      fullName: fullName,
-      createdAt: DateTime.parse(authUser.createdAt),
-    );
+    // Fallback: dùng auth metadata nếu user chưa có trong bảng users
+    final metadata = authUser.userMetadata ?? {};
+    return UserModel.fromSupabase({
+      'id': authUser.id,
+      'username': metadata['username'] as String? ?? authUser.email?.split('@').first ?? '',
+      'role': (metadata['role'] as String? ?? 'ACCOUNTANT').toUpperCase(),
+      'full_name': metadata['full_name'] as String?,
+      'email': metadata['email'] as String?,
+      'phone': metadata['phone'] as String?,
+      'avatar_url': metadata['avatar_url'] as String?,
+      'status': metadata['status'] as String? ?? 'ACTIVE',
+      'created_at': authUser.createdAt,
+      'updated_at': metadata['updated_at'] as String?,
+    });
   }
 
   // ── USERS ──────────────────────────────────────────────────────
@@ -68,14 +84,7 @@ class SupabaseDatasource {
         .eq('username', username)
         .maybeSingle();
     if (response == null) return null;
-    return UserModel(
-      id: response['id'],
-      username: response['username'],
-      passwordHash: '',
-      role: response['role'] == 'admin' ? UserRole.admin : UserRole.user,
-      fullName: response['full_name'],
-      createdAt: DateTime.parse(response['created_at']),
-    );
+    return UserModel.fromSupabase(response);
   }
 
   Future<UserModel?> getUserById(String id) async {
@@ -85,14 +94,7 @@ class SupabaseDatasource {
         .eq('id', id)
         .maybeSingle();
     if (response == null) return null;
-    return UserModel(
-      id: response['id'],
-      username: response['username'],
-      passwordHash: '',
-      role: response['role'] == 'admin' ? UserRole.admin : UserRole.user,
-      fullName: response['full_name'],
-      createdAt: DateTime.parse(response['created_at']),
-    );
+    return UserModel.fromSupabase(response);
   }
 
   Future<List<UserModel>> getAllUsers() async {
@@ -100,14 +102,38 @@ class SupabaseDatasource {
         .from('users')
         .select()
         .order('created_at', ascending: true);
-    return (response as List).map((m) => UserModel(
-      id: m['id'],
-      username: m['username'],
-      passwordHash: '',
-      role: m['role'] == 'admin' ? UserRole.admin : UserRole.user,
-      fullName: m['full_name'],
-      createdAt: DateTime.parse(m['created_at']),
-    )).toList();
+    return (response as List).map((m) => UserModel.fromSupabase(m as Map<String, dynamic>)).toList();
+  }
+
+  Future<void> updateUser(UserModel user) async {
+    await _client.from('users').update({
+      'full_name': user.fullName,
+      'email': user.email,
+      'phone': user.phone,
+      'avatar_url': user.avatarUrl,
+      'status': user.status,
+      'role': user.role.dbValue,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', user.id);
+  }
+
+  Future<void> deleteUser(String userId) async {
+    await _client.from('users').delete().eq('id', userId);
+  }
+
+  Future<void> insertUser(UserModel user) async {
+    await _client.from('users').upsert({
+      'id': user.id,
+      'username': user.username,
+      'password_hash': user.passwordHash,
+      'role': user.role.dbValue,
+      'full_name': user.fullName,
+      'email': user.email,
+      'phone': user.phone,
+      'avatar_url': user.avatarUrl,
+      'status': user.status,
+      'created_at': user.createdAt.toIso8601String(),
+    });
   }
 
   // ── TRANSACTIONS ───────────────────────────────────────────────
@@ -136,7 +162,16 @@ class SupabaseDatasource {
       ),
       description: m['description'],
       date: DateTime.parse(m['date']),
-      imagePath: m['image_path'],
+      imagePath: m['image_path'] ?? m['receipt_image_url'],
+      createdBy: m['created_by'],
+      categoryId: m['category_id'],
+      receiptImageUrl: m['receipt_image_url'],
+      status: m['status'] as String? ?? 'POSTED',
+      cancelReason: m['cancel_reason'],
+      cancelledBy: m['cancelled_by'],
+      cancelledAt: m['cancelled_at'] != null ? DateTime.tryParse(m['cancelled_at']) : null,
+      createdAt: m['created_at'] != null ? DateTime.tryParse(m['created_at']) : null,
+      updatedAt: m['updated_at'] != null ? DateTime.tryParse(m['updated_at']) : null,
     )).toList();
   }
 
@@ -144,13 +179,17 @@ class SupabaseDatasource {
     await _client.from('transactions').upsert({
       'id': t.id,
       'user_id': userId,
+      'created_by': t.createdBy ?? userId,
+      'category_id': t.categoryId,
       'title': t.title,
       'amount': t.amount,
       'type': t.type.name,
       'category': t.category.name,
       'description': t.description,
       'date': t.date.toIso8601String(),
+      'receipt_image_url': t.receiptImageUrl,
       'image_path': t.imagePath,
+      'status': t.status,
     });
   }
 
@@ -162,7 +201,14 @@ class SupabaseDatasource {
       'category': t.category.name,
       'description': t.description,
       'date': t.date.toIso8601String(),
+      'receipt_image_url': t.receiptImageUrl,
       'image_path': t.imagePath,
+      'category_id': t.categoryId,
+      'status': t.status,
+      'cancel_reason': t.cancelReason,
+      'cancelled_by': t.cancelledBy,
+      'cancelled_at': t.cancelledAt?.toIso8601String(),
+      'updated_at': DateTime.now().toIso8601String(),
     }).eq('id', t.id);
   }
 
@@ -234,7 +280,7 @@ class SupabaseDatasource {
   Future<List<InvoiceModel>> queryInvoices({InvoiceStatus? status, String? userId}) async {
     var query = _client.from('invoices').select();
     if (userId != null) query = query.eq('user_id', userId);
-    if (status != null) query = query.eq('status', status.name);
+    if (status != null) query = query.eq('status', status.name.toUpperCase());
     final response = await query.order('created_at', ascending: false);
     final invoices = <InvoiceModel>[];
     for (final m in response as List) {
@@ -259,17 +305,20 @@ class SupabaseDatasource {
     await _client.from('invoices').upsert({
       'id': inv.id,
       'user_id': userId,
+      'created_by': userId,
+      'partner_id': inv.partnerId,
       'invoice_number': inv.invoiceNumber,
-      'vendor': inv.vendor,
-      'vendor_tax_code': inv.vendorTaxCode,
+      'invoice_type': inv.invoiceType,
       'subtotal': inv.subtotal,
       'vat_rate': inv.vatRate.name,
+      'vat_amount': inv.vatAmount,
+      'total_amount': inv.totalAmount,
       'invoice_date': inv.invoiceDate.toIso8601String(),
-      'due_date': inv.dueDate?.toIso8601String(),
-      'status': inv.status.name,
-      'ai_confidence': inv.aiConfidence,
-      'ai_notes': inv.aiNotes,
+      'status': inv.status.name.toUpperCase(),
       'image_path': inv.imagePath,
+      'pdf_url': inv.pdfUrl,
+      'ocr_text': inv.ocrText,
+      'note': inv.note,
     });
     await insertInvoiceItems(inv.id, inv.items);
   }
@@ -277,16 +326,18 @@ class SupabaseDatasource {
   Future<void> updateInvoice(InvoiceModel inv) async {
     await _client.from('invoices').update({
       'invoice_number': inv.invoiceNumber,
-      'vendor': inv.vendor,
-      'vendor_tax_code': inv.vendorTaxCode,
+      'partner_id': inv.partnerId,
+      'invoice_type': inv.invoiceType,
       'subtotal': inv.subtotal,
       'vat_rate': inv.vatRate.name,
+      'vat_amount': inv.vatAmount,
+      'total_amount': inv.totalAmount,
       'invoice_date': inv.invoiceDate.toIso8601String(),
-      'due_date': inv.dueDate?.toIso8601String(),
-      'status': inv.status.name,
-      'ai_confidence': inv.aiConfidence,
-      'ai_notes': inv.aiNotes,
+      'status': inv.status.name.toUpperCase(),
       'image_path': inv.imagePath,
+      'pdf_url': inv.pdfUrl,
+      'ocr_text': inv.ocrText,
+      'note': inv.note,
     }).eq('id', inv.id);
     await deleteInvoiceItems(inv.id);
     await insertInvoiceItems(inv.id, inv.items);
@@ -295,6 +346,10 @@ class SupabaseDatasource {
   Future<void> deleteInvoice(String id) async {
     await deleteInvoiceItems(id);
     await _client.from('invoices').delete().eq('id', id);
+  }
+
+  Future<void> updateInvoiceStatus(String invoiceId, String status) async {
+    await _client.from('invoices').update({'status': status}).eq('id', invoiceId);
   }
 
   Future<Map<String, int>> invoiceStats({String? userId}) async {
@@ -339,9 +394,10 @@ class SupabaseDatasource {
         .select()
         .eq('invoice_id', invoiceId);
     return (response as List).map((m) => InvoiceItem(
-      name: m['name'] as String,
+      name: m['item_name'] as String? ?? m['name'] as String? ?? '',
       quantity: (m['quantity'] as num).toInt(),
       unitPrice: (m['unit_price'] as num).toInt(),
+      unit: m['unit'] as String?,
     )).toList();
   }
 
@@ -350,10 +406,11 @@ class SupabaseDatasource {
     final rows = items.map((item) => {
       'id': const Uuid().v4(),
       'invoice_id': invoiceId,
-      'name': item.name,
+      'item_name': item.name,
       'quantity': item.quantity,
+      'unit': item.unit ?? 'cái',
       'unit_price': item.unitPrice,
-      'amount': item.total,
+      'line_total': item.lineTotal,
     }).toList();
     await _client.from('invoice_items').upsert(rows);
   }
@@ -362,7 +419,169 @@ class SupabaseDatasource {
     await _client.from('invoice_items').delete().eq('invoice_id', invoiceId);
   }
 
-  // ── AUDIT LOGS ─────────────────────────────────────────────────
+  // ── CATEGORIES ─────────────────────────────────────────────────
+
+  Future<List<CategoryModel>> getAllCategories() async {
+    final response = await _client.from('categories').select().order('type', ascending: true);
+    return (response as List).map((m) => CategoryModel.fromMap(m as Map<String, dynamic>)).toList();
+  }
+
+  Future<void> insertCategory(CategoryModel cat) async {
+    await _client.from('categories').upsert(cat.toMap());
+  }
+
+  Future<void> updateCategory(CategoryModel cat) async {
+    await _client.from('categories').update({
+      'category_name': cat.categoryName,
+      'type': cat.type,
+      'icon': cat.icon,
+      'color': cat.color,
+    }).eq('category_id', cat.categoryId);
+  }
+
+  Future<void> deleteCategory(String categoryId) async {
+    await _client.from('categories').delete().eq('category_id', categoryId);
+  }
+
+  // ── PARTNERS ───────────────────────────────────────────────────
+
+  Future<List<PartnerModel>> getAllPartners() async {
+    final response = await _client.from('partners').select().order('partner_name', ascending: true);
+    return (response as List).map((m) => PartnerModel.fromMap(m as Map<String, dynamic>)).toList();
+  }
+
+  Future<PartnerModel?> getPartnerByTaxCode(String taxCode) async {
+    final response = await _client.from('partners').select().eq('tax_code', taxCode).maybeSingle();
+    if (response == null) return null;
+    return PartnerModel.fromMap(response);
+  }
+
+  Future<void> insertPartner(PartnerModel partner) async {
+    await _client.from('partners').upsert(partner.toMap());
+  }
+
+  Future<void> updatePartner(PartnerModel partner) async {
+    await _client.from('partners').update({
+      'partner_name': partner.partnerName,
+      'partner_type': partner.partnerType,
+      'tax_code': partner.taxCode,
+      'phone': partner.phone,
+      'email': partner.email,
+      'address': partner.address,
+      'status': partner.status,
+    }).eq('partner_id', partner.partnerId);
+  }
+
+  Future<void> deletePartner(String partnerId) async {
+    await _client.from('partners').delete().eq('partner_id', partnerId);
+  }
+
+  // ── INVOICE APPROVALS ──────────────────────────────────────────
+
+  Future<void> insertInvoiceApproval({
+    required String invoiceId,
+    required String approvedBy,
+    required String action,
+    String? comment,
+  }) async {
+    await _client.from('invoice_approvals').insert({
+      'approval_id': const Uuid().v4(),
+      'invoice_id': invoiceId,
+      'approved_by': approvedBy,
+      'action': action,
+      'comment': comment,
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> getInvoiceApprovals(String invoiceId) async {
+    final response = await _client
+        .from('invoice_approvals')
+        .select()
+        .eq('invoice_id', invoiceId)
+        .order('approved_at', ascending: false);
+    return (response as List).map((m) => Map<String, dynamic>.from(m)).toList();
+  }
+
+  // ── NOTIFICATIONS ──────────────────────────────────────────────
+
+  Future<void> insertNotification({
+    required String userId,
+    required String title,
+    required String message,
+    required String type,
+    String? referenceId,
+  }) async {
+    await _client.from('notifications').insert({
+      'notification_id': const Uuid().v4(),
+      'user_id': userId,
+      'title': title,
+      'message': message,
+      'type': type,
+      'reference_id': referenceId,
+    });
+  }
+
+  Future<List<NotificationModel>> getNotifications(String userId, {bool? unreadOnly}) async {
+    var query = _client.from('notifications').select().eq('user_id', userId);
+    if (unreadOnly == true) query = query.eq('is_read', false);
+    final response = await query.order('created_at', ascending: false);
+    return (response as List).map((m) => NotificationModel.fromMap(m as Map<String, dynamic>)).toList();
+  }
+
+  Future<int> getUnreadNotificationCount(String userId) async {
+    final response = await _client
+        .from('notifications')
+        .select('notification_id')
+        .eq('user_id', userId)
+        .eq('is_read', false);
+    return (response as List).length;
+  }
+
+  Future<void> markNotificationRead(String notificationId) async {
+    await _client.from('notifications').update({'is_read': true}).eq('notification_id', notificationId);
+  }
+
+  Future<void> markAllNotificationsRead(String userId) async {
+    await _client.from('notifications').update({'is_read': true}).eq('user_id', userId).eq('is_read', false);
+  }
+
+  // ── ACTIVITY LOGS ──────────────────────────────────────────────
+
+  Future<void> insertActivityLog({
+    required String userId,
+    required String module,
+    required String actionType,
+    String? referenceId,
+    String? description,
+    String? entityType,
+    String? entityId,
+  }) async {
+    await _client.from('activity_logs').insert({
+      'log_id': const Uuid().v4(),
+      'user_id': userId,
+      'module': module,
+      'action_type': actionType,
+      'reference_id': referenceId,
+      'description': description,
+      'entity_type': entityType,
+      'entity_id': entityId,
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> getActivityLogs({
+    String? userId,
+    String? module,
+    String? actionType,
+  }) async {
+    var query = _client.from('activity_logs').select();
+    if (userId != null) query = query.eq('user_id', userId);
+    if (module != null) query = query.eq('module', module);
+    if (actionType != null) query = query.eq('action_type', actionType);
+    final response = await query.order('created_at', ascending: false);
+    return (response as List).map((m) => Map<String, dynamic>.from(m)).toList();
+  }
+
+  // ── AUDIT LOGS (legacy compat) ─────────────────────────────────
 
   Future<void> insertAuditLog({
     required String userId,
@@ -372,23 +591,19 @@ class SupabaseDatasource {
     String? oldValue,
     String? newValue,
   }) async {
-    await _client.from('audit_logs').insert({
-      'id': const Uuid().v4(),
-      'user_id': userId,
-      'action': action,
-      'entity_type': entityType,
-      'entity_id': entityId,
-      'old_value': oldValue,
-      'new_value': newValue,
-    });
+    await insertActivityLog(
+      userId: userId,
+      module: entityType.toUpperCase(),
+      actionType: action.toUpperCase(),
+      referenceId: entityId,
+      description: newValue,
+      entityType: entityType,
+      entityId: entityId,
+    );
   }
 
   Future<List<Map<String, dynamic>>> getAuditLogs({String? userId, String? entityType}) async {
-    var query = _client.from('audit_logs').select();
-    if (userId != null) query = query.eq('user_id', userId);
-    if (entityType != null) query = query.eq('entity_type', entityType);
-    final response = await query.order('created_at', ascending: false);
-    return (response as List).map((m) => m as Map<String, dynamic>).toList();
+    return getActivityLogs(userId: userId, module: entityType?.toUpperCase());
   }
 
   // ── HELPERS ──────────────────────────────────────────────────
@@ -414,23 +629,26 @@ class SupabaseDatasource {
     return InvoiceModel(
       id: m['id'],
       invoiceNumber: m['invoice_number'],
-      vendor: m['vendor'],
-      vendorTaxCode: m['vendor_tax_code'],
+      partnerId: m['partner_id'],
+      createdBy: m['created_by'],
+      invoiceType: (m['invoice_type'] as String?) ?? 'IN',
       subtotal: (m['subtotal'] as num).toInt(),
       vatRate: VatRate.values.firstWhere(
-        (e) => e.name == (m['vat_rate'] ?? 'vat10'),
-        orElse: () => VatRate.vat10,
+        (e) => e.name == (m['vat_rate'] ?? 'none'),
+        orElse: () => VatRate.none,
       ),
+      vatAmount: (m['vat_amount'] as num?)?.toInt() ?? 0,
+      totalAmount: (m['total_amount'] as num?)?.toInt() ?? 0,
       invoiceDate: DateTime.parse(m['invoice_date']),
-      dueDate: m['due_date'] != null ? DateTime.parse(m['due_date']) : null,
       status: InvoiceStatus.values.firstWhere(
-        (e) => e.name == m['status'],
-        orElse: () => InvoiceStatus.pending,
+        (e) => e.name == (m['status'] as String?)?.toLowerCase(),
+        orElse: () => InvoiceStatus.draft,
       ),
-      aiConfidence: m['ai_confidence'] != null ? (m['ai_confidence'] as num).toDouble() : null,
-      aiNotes: m['ai_notes'],
       items: items ?? [],
       imagePath: m['image_path'],
+      pdfUrl: m['pdf_url'],
+      ocrText: m['ocr_text'],
+      note: m['note'],
       createdAt: DateTime.parse(m['created_at']),
     );
   }

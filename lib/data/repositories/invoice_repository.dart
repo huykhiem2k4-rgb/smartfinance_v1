@@ -54,6 +54,35 @@ class InvoiceRepository {
     }
   }
 
+  Future<void> updateStatus(String id, String status) async {
+    await _local.updateInvoiceStatus(id, status);
+    if (await ConnectivityHelper.isOnline) {
+      try {
+        await _cloud.updateInvoiceStatus(id, status);
+      } catch (_) {}
+    }
+  }
+
+  Future<void> approve(String invoiceId, String approvedBy, {String? comment}) async {
+    await _local.insertInvoiceApproval(invoiceId: invoiceId, approvedBy: approvedBy, action: 'APPROVE', comment: comment);
+    await _local.updateInvoiceStatus(invoiceId, 'APPROVED');
+    if (await ConnectivityHelper.isOnline) {
+      try {
+        await _cloud.insertInvoiceApproval(invoiceId: invoiceId, approvedBy: approvedBy, action: 'APPROVE', comment: comment);
+      } catch (_) {}
+    }
+  }
+
+  Future<void> reject(String invoiceId, String approvedBy, {String? comment}) async {
+    await _local.insertInvoiceApproval(invoiceId: invoiceId, approvedBy: approvedBy, action: 'REJECT', comment: comment);
+    await _local.updateInvoiceStatus(invoiceId, 'REJECTED');
+    if (await ConnectivityHelper.isOnline) {
+      try {
+        await _cloud.insertInvoiceApproval(invoiceId: invoiceId, approvedBy: approvedBy, action: 'REJECT', comment: comment);
+      } catch (_) {}
+    }
+  }
+
   Future<void> remove(String id) async {
     await _local.deleteInvoice(id);
     if (await ConnectivityHelper.isOnline) {
