@@ -20,7 +20,7 @@ class AuthProvider extends ChangeNotifier {
 
   UserModel? get currentUser => _currentUser;
   bool get isLoggedIn => _currentUser != null;
-  bool get isAdmin => _currentUser?.role == UserRole.admin;
+  bool get isAdmin => _currentUser?.role == UserRole.owner;
   String get userId => _currentUser?.id ?? '';
   bool get isLoading => _isLoading;
   String? get error => _error;
@@ -97,6 +97,9 @@ class AuthProvider extends ChangeNotifier {
     required String username,
     required String password,
     required String fullName,
+    UserRole role = UserRole.accountant,
+    String? email,
+    String? phone,
   }) async {
     _isLoading = true;
     _error = null;
@@ -114,10 +117,16 @@ class AuthProvider extends ChangeNotifier {
           id: authUser.id,
           username: username.trim().toLowerCase(),
           passwordHash: '',
-          role: UserRole.user,
+          role: role,
           fullName: fullName.trim(),
+          email: email,
+          phone: phone,
           createdAt: DateTime.parse(authUser.createdAt),
         );
+        // Insert vào cả Supabase users table (phòng trigger chưa chạy)
+        try {
+          await _cloud.insertUser(newUser);
+        } catch (_) {}
         await _local.insertUser(newUser);
       } else {
         final existing = await _local.getUserByUsername(username.trim().toLowerCase());
@@ -129,8 +138,10 @@ class AuthProvider extends ChangeNotifier {
           id: const Uuid().v4(),
           username: username.trim().toLowerCase(),
           passwordHash: UserModel.hashPassword(password),
-          role: UserRole.user,
+          role: role,
           fullName: fullName.trim(),
+          email: email,
+          phone: phone,
           createdAt: DateTime.now(),
         );
         await _local.insertUser(newUser);

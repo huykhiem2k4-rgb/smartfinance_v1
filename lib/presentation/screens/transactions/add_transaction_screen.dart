@@ -24,7 +24,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   final _descCtrl = TextEditingController();
 
   TransactionType _type = TransactionType.income;
-  TransactionCategory _category = TransactionCategory.sales;
+  String? _selectedCategoryId;
   DateTime _date = DateTime.now();
   String? _imagePath;
   bool _saving = false;
@@ -53,9 +53,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
               selected: {_type},
               onSelectionChanged: (s) => setState(() {
                 _type = s.first;
-                _category = _type == TransactionType.income
-                    ? TransactionCategory.sales
-                    : TransactionCategory.salary;
+                _selectedCategoryId = null;
               }),
               segments: const [
                 ButtonSegment(value: TransactionType.income, label: Text('Thu tiền'), icon: Icon(Icons.add_circle_outline)),
@@ -101,16 +99,24 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
               ),
             const SizedBox(height: 12),
 
-            // Category
-            DropdownButtonFormField<TransactionCategory>(
-              value: _category,
-              decoration: const InputDecoration(labelText: 'Danh mục *', prefixIcon: Icon(Icons.category)),
-              items: TransactionCategory.values
-                  .where((c) => c.type == _type)
-                  .map((c) => DropdownMenuItem(value: c, child: Text(c.label)))
-                  .toList(),
-              onChanged: (v) => setState(() => _category = v!),
-              validator: (v) => v == null ? 'Chọn danh mục' : null,
+            // Category from DB
+            Consumer<AppProvider>(
+              builder: (ctx, p, _) {
+                final filtered = p.categories.where((c) =>
+                  (_type == TransactionType.income && c.isIncome) ||
+                  (_type == TransactionType.expense && c.isExpense)
+                ).toList();
+                return DropdownButtonFormField<String>(
+                  value: _selectedCategoryId,
+                  decoration: const InputDecoration(labelText: 'Danh mục *', prefixIcon: Icon(Icons.category)),
+                  items: filtered.map((c) => DropdownMenuItem(
+                    value: c.categoryId,
+                    child: Text(c.categoryName),
+                  )).toList(),
+                  onChanged: (v) => setState(() => _selectedCategoryId = v),
+                  validator: (v) => v == null ? 'Chọn danh mục' : null,
+                );
+              },
             ),
             const SizedBox(height: 12),
 
@@ -185,12 +191,28 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       return;
     }
     try {
+      // Map categoryId to TransactionCategory
+      final catMap = {
+        'cat_income_sales': TransactionCategory.sales,
+        'cat_income_service': TransactionCategory.serviceRevenue,
+        'cat_income_invest': TransactionCategory.investment,
+        'cat_income_other': TransactionCategory.otherIncome,
+        'cat_expense_salary': TransactionCategory.salary,
+        'cat_expense_rent': TransactionCategory.rent,
+        'cat_expense_util': TransactionCategory.utilities,
+        'cat_expense_supply': TransactionCategory.supplies,
+        'cat_expense_mkt': TransactionCategory.marketing,
+        'cat_expense_tax': TransactionCategory.tax,
+        'cat_expense_other': TransactionCategory.otherExpense,
+      };
+      final txCategory = catMap[_selectedCategoryId] ?? TransactionCategory.otherExpense;
       final t = TransactionModel(
         id: const Uuid().v4(),
         title: _titleCtrl.text.trim(),
         amount: amount,
         type: _type,
-        category: _category,
+        category: txCategory,
+        categoryId: _selectedCategoryId,
         description: _descCtrl.text.trim().isEmpty ? null : _descCtrl.text.trim(),
         date: _date,
         imagePath: _imagePath,

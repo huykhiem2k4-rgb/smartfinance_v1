@@ -61,6 +61,16 @@ class TransactionRepository {
     }
   }
 
+  Future<void> cancel(String id, {required String cancelledBy, required String reason}) async {
+    await _local.cancelTransaction(id, cancelledBy: cancelledBy, reason: reason);
+    if (await ConnectivityHelper.isOnline) {
+      try {
+        final tx = await _local.getTransactionById(id);
+        if (tx != null) await _cloud.updateTransaction(tx);
+      } catch (_) {}
+    }
+  }
+
   Future<List<Map<String, dynamic>>> monthlyTrend(int months, {String? userId}) async {
     return _local.monthlyTrend(months, userId: userId);
   }

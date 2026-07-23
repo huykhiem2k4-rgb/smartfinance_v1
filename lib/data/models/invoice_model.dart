@@ -1,12 +1,12 @@
-enum InvoiceStatus { pending, approved, rejected, reviewing }
+enum InvoiceStatus { draft, pending, approved, rejected }
 
 extension InvoiceStatusExt on InvoiceStatus {
   String get label {
     switch (this) {
-      case InvoiceStatus.pending:   return 'Chờ kiểm tra';
-      case InvoiceStatus.approved:  return 'Đã duyệt';
-      case InvoiceStatus.rejected:  return 'Từ chối';
-      case InvoiceStatus.reviewing: return 'Đang xét duyệt';
+      case InvoiceStatus.draft:    return 'Nháp';
+      case InvoiceStatus.pending:  return 'Chờ duyệt';
+      case InvoiceStatus.approved: return 'Đã duyệt';
+      case InvoiceStatus.rejected: return 'Từ chối';
     }
   }
 }
@@ -33,156 +33,167 @@ extension VatRateExt on VatRate {
 class InvoiceItem {
   final String name;
   final int quantity;
-  /// Unit price in VND (int)
   final int unitPrice;
+  final String? unit;
 
   const InvoiceItem({
     required this.name,
     required this.quantity,
     required this.unitPrice,
+    this.unit,
   });
 
   int get total => quantity * unitPrice;
+  int get lineTotal => total;
 
   Map<String, dynamic> toMap() => {
-        'name': name,
+        'item_name': name,
         'quantity': quantity,
-        'unitPrice': unitPrice,
+        'unit_price': unitPrice,
+        'unit': unit ?? 'cái',
+        'line_total': lineTotal,
       };
 
   factory InvoiceItem.fromMap(Map<String, dynamic> m) => InvoiceItem(
-        name: m['name'] ?? '',
+        name: m['item_name'] as String? ?? m['name'] as String? ?? '',
         quantity: (m['quantity'] as num?)?.toInt() ?? 1,
-        unitPrice: (m['unitPrice'] as num?)?.toInt() ?? 0,
+        unitPrice: (m['unit_price'] as num?)?.toInt() ?? 0,
+        unit: m['unit'] as String?,
       );
 }
 
 class InvoiceModel {
   final String id;
   final String invoiceNumber;
-  final String vendor;
-  final String? vendorTaxCode;
-  /// Subtotal (before VAT) in VND (int)
+  final String? partnerId;
+  final String? createdBy;
+  final String invoiceType; // IN | OUT
   final int subtotal;
   final VatRate vatRate;
+  final int vatAmount;
+  final int totalAmount;
   final DateTime invoiceDate;
-  final DateTime? dueDate;
   final InvoiceStatus status;
-  final double? aiConfidence;
-  final String? aiNotes;
   final List<InvoiceItem> items;
   final String? imagePath;
+  final String? pdfUrl;
+  final String? ocrText;
+  final String? note;
   final DateTime createdAt;
+  final DateTime? updatedAt;
 
   const InvoiceModel({
     required this.id,
     required this.invoiceNumber,
-    required this.vendor,
-    this.vendorTaxCode,
+    this.partnerId,
+    this.createdBy,
+    this.invoiceType = 'IN',
     required this.subtotal,
     required this.vatRate,
+    required this.vatAmount,
+    required this.totalAmount,
     required this.invoiceDate,
-    this.dueDate,
     required this.status,
-    this.aiConfidence,
-    this.aiNotes,
     required this.items,
     this.imagePath,
+    this.pdfUrl,
+    this.ocrText,
+    this.note,
     required this.createdAt,
+    this.updatedAt,
   });
 
-  int get vatAmount => (subtotal * vatRate.rate).round();
-  int get totalAmount => subtotal + vatAmount;
+  bool get isDraft => status == InvoiceStatus.draft;
+  bool get isPending => status == InvoiceStatus.pending;
+  bool get isApproved => status == InvoiceStatus.approved;
+  bool get isRejected => status == InvoiceStatus.rejected;
+  bool get isIncoming => invoiceType == 'IN';
+  bool get isOutgoing => invoiceType == 'OUT';
 
   Map<String, dynamic> toMap() => {
         'id': id,
         'invoice_number': invoiceNumber,
-        'vendor': vendor,
-        'vendor_tax_code': vendorTaxCode,
+        'partner_id': partnerId,
+        'created_by': createdBy,
+        'invoice_type': invoiceType,
         'subtotal': subtotal,
         'vat_rate': vatRate.name,
+        'vat_amount': vatAmount,
+        'total_amount': totalAmount,
         'invoice_date': invoiceDate.toIso8601String(),
-        'due_date': dueDate?.toIso8601String(),
-        'status': status.name,
-        'ai_confidence': aiConfidence,
-        'ai_notes': aiNotes,
-        'items_json': _encodeItems(),
+        'status': status.name.toUpperCase(),
         'image_path': imagePath,
+        'pdf_url': pdfUrl,
+        'ocr_text': ocrText,
+        'note': note,
         'created_at': createdAt.toIso8601String(),
+        'updated_at': updatedAt?.toIso8601String(),
       };
 
-  String _encodeItems() {
-    return items.map((i) => '${i.name}|||${i.quantity}|||${i.unitPrice}').join('~~~');
-  }
-
   factory InvoiceModel.fromMap(Map<String, dynamic> m, {List<InvoiceItem>? items}) {
-    List<InvoiceItem> parsedItems = items ?? [];
-
-    if (parsedItems.isEmpty) {
-      final raw = m['items_json']?.toString() ?? '';
-      if (raw.isNotEmpty) {
-        parsedItems = raw.split('~~~').map((s) {
-          final parts = s.split('|||');
-          if (parts.length != 3) return null;
-          return InvoiceItem(
-            name: parts[0],
-            quantity: int.tryParse(parts[1]) ?? 1,
-            unitPrice: int.tryParse(parts[2]) ?? 0,
-          );
-        }).whereType<InvoiceItem>().toList();
-      }
-    }
+    final parsedItems = items ?? [];
 
     return InvoiceModel(
-      id: m['id'],
-      invoiceNumber: m['invoice_number'],
-      vendor: m['vendor'],
-      vendorTaxCode: m['vendor_tax_code'],
+      id: m['id'] as String,
+      invoiceNumber: m['invoice_number'] as String,
+      partnerId: m['partner_id'] as String?,
+      createdBy: m['created_by'] as String?,
+      invoiceType: (m['invoice_type'] as String?) ?? 'IN',
       subtotal: (m['subtotal'] as num).toInt(),
       vatRate: VatRate.values.firstWhere(
-        (e) => e.name == (m['vat_rate'] ?? 'vat10'),
-        orElse: () => VatRate.vat10,
+        (e) => e.name == (m['vat_rate'] ?? 'none'),
+        orElse: () => VatRate.none,
       ),
-      invoiceDate: DateTime.parse(m['invoice_date']),
-      dueDate: m['due_date'] != null ? DateTime.parse(m['due_date']) : null,
+      vatAmount: (m['vat_amount'] as num?)?.toInt() ?? 0,
+      totalAmount: (m['total_amount'] as num?)?.toInt() ?? 0,
+      invoiceDate: DateTime.parse(m['invoice_date'] as String),
       status: InvoiceStatus.values.firstWhere(
-        (e) => e.name == m['status'],
-        orElse: () => InvoiceStatus.pending,
+        (e) => e.name == (m['status'] as String?)?.toLowerCase(),
+        orElse: () => InvoiceStatus.draft,
       ),
-      aiConfidence: m['ai_confidence'] != null ? (m['ai_confidence'] as num).toDouble() : null,
-      aiNotes: m['ai_notes'],
       items: parsedItems,
-      imagePath: m['image_path'],
-      createdAt: DateTime.parse(m['created_at']),
+      imagePath: m['image_path'] as String?,
+      pdfUrl: m['pdf_url'] as String?,
+      ocrText: m['ocr_text'] as String?,
+      note: m['note'] as String?,
+      createdAt: DateTime.tryParse(m['created_at'] as String? ?? '') ?? DateTime.now(),
+      updatedAt: m['updated_at'] != null ? DateTime.tryParse(m['updated_at'] as String) : null,
     );
   }
 
   InvoiceModel copyWith({
     InvoiceStatus? status,
-    double? aiConfidence,
-    String? aiNotes,
-    String? imagePath,
     String? invoiceNumber,
-    String? vendor,
-    String? vendorTaxCode,
+    String? partnerId,
+    String? invoiceType,
     int? subtotal,
     VatRate? vatRate,
+    int? vatAmount,
+    int? totalAmount,
     List<InvoiceItem>? items,
+    String? imagePath,
+    String? pdfUrl,
+    String? ocrText,
+    String? note,
   }) =>
       InvoiceModel(
         id: id,
         invoiceNumber: invoiceNumber ?? this.invoiceNumber,
-        vendor: vendor ?? this.vendor,
-        vendorTaxCode: vendorTaxCode ?? this.vendorTaxCode,
+        partnerId: partnerId ?? this.partnerId,
+        createdBy: createdBy,
+        invoiceType: invoiceType ?? this.invoiceType,
         subtotal: subtotal ?? this.subtotal,
         vatRate: vatRate ?? this.vatRate,
+        vatAmount: vatAmount ?? this.vatAmount,
+        totalAmount: totalAmount ?? this.totalAmount,
         invoiceDate: invoiceDate,
-        dueDate: dueDate,
         status: status ?? this.status,
-        aiConfidence: aiConfidence ?? this.aiConfidence,
-        aiNotes: aiNotes ?? this.aiNotes,
         items: items ?? this.items,
         imagePath: imagePath ?? this.imagePath,
+        pdfUrl: pdfUrl ?? this.pdfUrl,
+        ocrText: ocrText ?? this.ocrText,
+        note: note ?? this.note,
         createdAt: createdAt,
+        updatedAt: DateTime.now(),
       );
 }

@@ -5,6 +5,7 @@ import '../../../data/datasources/local_datasource.dart';
 import '../../../data/models/user_model.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../core/utils/validators.dart';
 
 class AdminScreen extends StatefulWidget {
   const AdminScreen({super.key});
@@ -42,6 +43,127 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
     if (mounted) setState(() { _users = users; _userStats = stats; _loading = false; });
   }
 
+  Future<void> _showCreateUserDialog(BuildContext context) async {
+    final formKey = GlobalKey<FormState>();
+    final nameCtrl = TextEditingController();
+    final userCtrl = TextEditingController();
+    final passCtrl = TextEditingController();
+    final confirmCtrl = TextEditingController();
+    final emailCtrl = TextEditingController();
+    final phoneCtrl = TextEditingController();
+    UserRole selectedRole = UserRole.accountant;
+    bool obscurePass = true;
+    bool isLoading = false;
+
+    await showDialog(
+      context: context,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Tạo tài khoản mới'),
+          content: SingleChildScrollView(
+            child: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextFormField(
+                    controller: nameCtrl,
+                    decoration: const InputDecoration(labelText: 'Họ và tên *', prefixIcon: Icon(Icons.person_outline)),
+                    validator: (v) => Validators.required(v, 'Họ và tên'),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: userCtrl,
+                    decoration: const InputDecoration(labelText: 'Tên đăng nhập *', prefixIcon: Icon(Icons.alternate_email)),
+                    validator: (v) {
+                      if (v == null || v.trim().isEmpty) return 'Tên đăng nhập không được trống';
+                      if (v.trim().length < 3) return 'Tối thiểu 3 ký tự';
+                      if (!RegExp(r'^[a-z0-9_]+$').hasMatch(v.trim())) return 'Chỉ dùng a-z, 0-9, _';
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: passCtrl,
+                    obscureText: obscurePass,
+                    decoration: InputDecoration(
+                      labelText: 'Mật khẩu *',
+                      prefixIcon: const Icon(Icons.lock_outline),
+                      suffixIcon: IconButton(
+                        icon: Icon(obscurePass ? Icons.visibility_off : Icons.visibility),
+                        onPressed: () => setDialogState(() => obscurePass = !obscurePass),
+                      ),
+                    ),
+                    validator: (v) => (v == null || v.length < 6) ? 'Tối thiểu 6 ký tự' : null,
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: confirmCtrl,
+                    obscureText: true,
+                    decoration: const InputDecoration(labelText: 'Xác nhận mật khẩu *', prefixIcon: Icon(Icons.lock_outline)),
+                    validator: (v) => v != passCtrl.text ? 'Mật khẩu không khớp' : null,
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: emailCtrl,
+                    keyboardType: TextInputType.emailAddress,
+                    decoration: const InputDecoration(labelText: 'Email', prefixIcon: Icon(Icons.email_outlined)),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: phoneCtrl,
+                    keyboardType: TextInputType.phone,
+                    decoration: const InputDecoration(labelText: 'Số điện thoại', prefixIcon: Icon(Icons.phone_outlined)),
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<UserRole>(
+                    value: selectedRole,
+                    decoration: const InputDecoration(labelText: 'Vai trò', prefixIcon: Icon(Icons.admin_panel_settings)),
+                    items: UserRole.values.map((r) => DropdownMenuItem(value: r, child: Text(r.label))).toList(),
+                    onChanged: (v) => setDialogState(() => selectedRole = v!),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Hủy')),
+            ElevatedButton(
+              onPressed: isLoading ? null : () async {
+                if (!formKey.currentState!.validate()) return;
+                setDialogState(() => isLoading = true);
+                final auth = context.read<AuthProvider>();
+                final ok = await auth.register(
+                  username: userCtrl.text,
+                  password: passCtrl.text,
+                  fullName: nameCtrl.text,
+                  role: selectedRole,
+                  email: emailCtrl.text.isNotEmpty ? emailCtrl.text : null,
+                  phone: phoneCtrl.text.isNotEmpty ? phoneCtrl.text : null,
+                );
+                if (!ctx.mounted) return;
+                Navigator.pop(ctx);
+                if (ok) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Tạo tài khoản thành công'), backgroundColor: AppColors.income),
+                  );
+                  _loadData();
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(auth.error ?? 'Tạo tài khoản thất bại'), backgroundColor: AppColors.expense),
+                  );
+                }
+              },
+              child: isLoading
+                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Text('Tạo'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final currentUser = context.watch<AuthProvider>().currentUser;
@@ -49,6 +171,13 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
     return Scaffold(
       appBar: AppBar(
         title: const Text('Quản trị hệ thống'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.person_add, color: Colors.white),
+            onPressed: () => _showCreateUserDialog(context),
+            tooltip: 'Tạo tài khoản',
+          ),
+        ],
         bottom: TabBar(
           controller: _tabs,
           labelColor: Colors.white,
@@ -112,7 +241,7 @@ class _UserListTab extends StatelessWidget {
   }
 
   Future<void> _toggleRole(BuildContext context, UserModel user) async {
-    final newRole = user.role == UserRole.admin ? UserRole.user : UserRole.admin;
+    final newRole = user.role == UserRole.owner ? UserRole.accountant : UserRole.owner;
     final confirm = await showDialog<bool>(
       context: context,
       builder: (dialogCtx) => AlertDialog(
@@ -173,7 +302,7 @@ class _UserCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isAdmin = user.role == UserRole.admin;
+    final isAdmin = user.role == UserRole.owner;
     final income = stats['income'] ?? 0;
     final expense = stats['expense'] ?? 0;
     final invoices = stats['invoices'] ?? 0;
@@ -303,7 +432,7 @@ class _SystemStatsTab extends StatelessWidget {
       totalExpense += s['expense'] ?? 0;
       totalInvoices += s['invoices'] ?? 0;
     }
-    final admins = users.where((u) => u.role == UserRole.admin).length;
+    final admins = users.where((u) => u.role == UserRole.owner).length;
     final regularUsers = users.length - admins;
 
     return SingleChildScrollView(
@@ -358,7 +487,7 @@ class _SystemStatsTab extends StatelessWidget {
                   side: BorderSide(color: Colors.grey.withValues(alpha: 0.2)),
                 ),
                 leading: CircleAvatar(
-                  backgroundColor: u.role == UserRole.admin ? AppColors.primary : AppColors.accent,
+                  backgroundColor: u.role == UserRole.owner ? AppColors.primary : AppColors.accent,
                   child: Text(
                     (u.fullName?.isNotEmpty == true ? u.fullName![0] : u.username[0]).toUpperCase(),
                     style: const TextStyle(color: Colors.white, fontSize: 13),

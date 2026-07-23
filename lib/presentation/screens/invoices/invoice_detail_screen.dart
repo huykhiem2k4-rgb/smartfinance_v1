@@ -1,4 +1,3 @@
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:pdf/pdf.dart';
@@ -18,132 +17,18 @@ class InvoiceDetailScreen extends StatefulWidget {
   State<InvoiceDetailScreen> createState() => _InvoiceDetailScreenState();
 }
 
-class _InvoiceDetailScreenState extends State<InvoiceDetailScreen>
-    with SingleTickerProviderStateMixin {
+class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
   InvoiceModel? _invoice;
-  bool _checking = false;
-  late AnimationController _checkAnim;
-  late Animation<double> _checkProgress;
 
   @override
   void initState() {
     super.initState();
-    _checkAnim = AnimationController(vsync: this, duration: const Duration(seconds: 2));
-    _checkProgress = Tween<double>(begin: 0, end: 1).animate(
-      CurvedAnimation(parent: _checkAnim, curve: Curves.easeInOut),
-    );
     _load();
   }
-
-  @override
-  void dispose() { _checkAnim.dispose(); super.dispose(); }
 
   Future<void> _load() async {
     final inv = await context.read<AppProvider>().getInvoice(widget.invoiceId);
     if (mounted) setState(() => _invoice = inv);
-  }
-
-  Future<void> _runAiCheck() async {
-    if (_invoice == null) return;
-    setState(() => _checking = true);
-    _checkAnim.reset();
-    _checkAnim.forward();
-
-    // Simulate AI analysis
-    await Future.delayed(const Duration(milliseconds: 2200));
-    final result = _simulateAI(_invoice!);
-    final updated = _invoice!.copyWith(
-      status: result.status,
-      aiConfidence: result.confidence,
-      aiNotes: result.notes,
-    );
-    await context.read<AppProvider>().updateInvoice(updated);
-    await _load();
-    setState(() => _checking = false);
-    if (mounted) _showResultDialog(result);
-  }
-
-  _AiResult _simulateAI(InvoiceModel inv) {
-    final rng = Random();
-    double conf = 0.80;
-    final issues = <String>[];
-    final positives = <String>[];
-
-    // Vendor check
-    final suspicious = ['không rõ', 'unknown', 'test', 'anonymous'];
-    if (suspicious.any((k) => inv.vendor.toLowerCase().contains(k))) {
-      conf -= 0.50; issues.add('Tên nhà cung cấp không rõ ràng hoặc đáng ngờ.');
-    } else {
-      positives.add('Thông tin nhà cung cấp hợp lệ.');
-    }
-    // Tax code
-    if (inv.vendorTaxCode == null || inv.vendorTaxCode!.isEmpty) {
-      conf -= 0.15; issues.add('Thiếu mã số thuế nhà cung cấp.');
-    } else {
-      positives.add('Mã số thuế đã được xác minh.');
-    }
-    // Amount
-    if (inv.totalAmount > 100000000) {
-      conf -= 0.10; issues.add('Giá trị lớn (>${Formatters.shortAmount(inv.totalAmount)}) — cần xác nhận thêm.');
-    } else {
-      positives.add('Giá trị hóa đơn trong ngưỡng bình thường.');
-    }
-    // Items
-    if (inv.items.isEmpty) {
-      conf -= 0.15; issues.add('Không có danh sách mặt hàng chi tiết.');
-    } else {
-      final itemTotal = inv.items.fold(0, (s, i) => s + i.total);
-      if ((itemTotal - inv.subtotal).abs() > 1000) {
-        conf -= 0.10; issues.add('Tổng mặt hàng không khớp với tiền hàng.');
-      } else {
-        positives.add('Tổng tiền mặt hàng khớp với giá trị hóa đơn.');
-      }
-    }
-    // Date
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final invoiceDay = DateTime(inv.invoiceDate.year, inv.invoiceDate.month, inv.invoiceDate.day);
-    final daysDiff = today.difference(invoiceDay).inDays;
-    if (daysDiff > 365) { conf -= 0.10; issues.add('Hóa đơn quá cũ (> 1 năm).'); }
-    else if (invoiceDay.isAfter(today)) { conf -= 0.20; issues.add('Ngày hóa đơn trong tương lai.'); }
-    else { positives.add('Ngày hóa đơn hợp lệ.'); }
-    // Invoice number format
-    if (RegExp(r'[A-Z]{1,3}[-/]?\d{4}[-/]\d+').hasMatch(inv.invoiceNumber.toUpperCase())) {
-      positives.add('Số hóa đơn đúng định dạng chuẩn.');
-    } else {
-      conf -= 0.05; issues.add('Số hóa đơn không theo định dạng tiêu chuẩn.');
-    }
-
-    conf += (rng.nextDouble() - 0.5) * 0.04;
-    conf = conf.clamp(0.05, 0.99);
-    final status = conf >= 0.70 ? InvoiceStatus.approved : conf >= 0.40 ? InvoiceStatus.reviewing : InvoiceStatus.rejected;
-
-    final buf = StringBuffer();
-    buf.writeln(conf >= 0.70 ? '✅ Hóa đơn hợp lệ (${(conf*100).toStringAsFixed(0)}%)' : conf >= 0.40 ? '⚠️ Cần xem xét thêm (${(conf*100).toStringAsFixed(0)}%)' : '❌ Hóa đơn đáng ngờ (${(conf*100).toStringAsFixed(0)}%)');
-    if (positives.isNotEmpty) { buf.writeln('\nĐiểm hợp lệ:'); for (final p in positives) { buf.writeln('• $p'); } }
-    if (issues.isNotEmpty) { buf.writeln('\nVấn đề phát hiện:'); for (final i in issues) { buf.writeln('• $i'); } }
-
-    return _AiResult(confidence: conf, status: status, notes: buf.toString().trim());
-  }
-
-  void _showResultDialog(_AiResult result) {
-    final color = result.status == InvoiceStatus.approved ? AppColors.income : result.status == InvoiceStatus.rejected ? AppColors.expense : AppColors.warning;
-    showDialog(
-      context: context,
-      builder: (dialogCtx) => AlertDialog(
-        title: Row(children: [
-          Icon(result.status == InvoiceStatus.approved ? Icons.check_circle : result.status == InvoiceStatus.rejected ? Icons.cancel : Icons.warning, color: color),
-          const SizedBox(width: 8),
-          const Text('Kết quả AI'),
-        ]),
-        content: SingleChildScrollView(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-          _ConfidenceBar(confidence: result.confidence),
-          const SizedBox(height: 12),
-          Text(result.notes, style: const TextStyle(fontSize: 13, height: 1.6)),
-        ])),
-        actions: [ElevatedButton(onPressed: () => Navigator.pop(dialogCtx), child: const Text('Đóng'))],
-      ),
-    );
   }
 
   Future<void> _updateStatus(InvoiceStatus newStatus) async {
@@ -161,53 +46,228 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen>
     }
   }
 
+  static const _companyName = 'SmartFinance';
+  static const _companyTaxCode = '0123456789';
+  static const _companyAddress = '123 Nguyen Hue, District 1, HCMC';
+  static const _companyPhone = '028 1234 5678';
+  static const _companyBankAccount = '1234567890123';
+
+  static String _numberToWords(int amount) {
+    if (amount == 0) return 'Khong dong';
+    final ones = ['', 'mot', 'hai', 'ba', 'bon', 'nam', 'sau', 'bay', 'tam', 'chin'];
+
+    String readThreeDigits(int n) {
+      if (n == 0) return '';
+      final h = n ~/ 100;
+      final r = n % 100;
+      final t = r ~/ 10;
+      final u = r % 10;
+      final buf = StringBuffer();
+      if (h > 0) {
+        buf.write('${ones[h]} tram');
+      }
+      if (r > 0 && r < 10) {
+        if (h > 0) buf.write(' le ');
+        buf.write(ones[r]);
+      } else if (r >= 10 && r < 20) {
+        if (h > 0) buf.write(' muoi ');
+        final teeenWords = ['muoi', 'muoi mot', 'muoi hai', 'muoi ba', 'muoi bon', 'muoi nam',
+            'muoi sau', 'muoi bay', 'muoi tam', 'muoi chin'];
+        buf.write(teeenWords[r - 10]);
+      } else if (r >= 20) {
+        buf.write(' muoi');
+        if (t > 1) buf.write(' ${ones[t]}');
+        if (u > 0) buf.write(' ${ones[u]}');
+      }
+      return buf.toString();
+    }
+
+    final parts = <String>[];
+    if (amount >= 1000000000) {
+      final b = amount ~/ 1000000000;
+      parts.add('${readThreeDigits(b)} ty');
+      amount %= 1000000000;
+    }
+    if (amount >= 1000000) {
+      final m = amount ~/ 1000000;
+      parts.add('${readThreeDigits(m)} trieu');
+      amount %= 1000000;
+    }
+    if (amount >= 1000) {
+      final t = amount ~/ 1000;
+      parts.add('${readThreeDigits(t)} nghin');
+      amount %= 1000;
+    }
+    if (amount > 0) {
+      parts.add(readThreeDigits(amount));
+    }
+    final result = parts.where((p) => p.isNotEmpty).join(' ');
+    return '${result[0].toUpperCase()}${result.substring(1)} dong';
+  }
+
   Future<void> _exportPdf() async {
     final inv = _invoice!;
-    
-    // Load fonts
+
+    // Load partner info
+    final partners = context.read<AppProvider>().partners;
+    final partner = inv.partnerId != null
+        ? partners.where((p) => p.partnerId == inv.partnerId).firstOrNull
+        : null;
+
     final fontData = await rootBundle.load('assets/fonts/NotoSans-Regular.ttf');
     final boldData = await rootBundle.load('assets/fonts/NotoSans-Bold.ttf');
     final font = pw.Font.ttf(fontData);
     final bold = pw.Font.ttf(boldData);
 
     final doc = pw.Document(theme: pw.ThemeData.withFont(base: font, bold: bold));
+    final now = inv.invoiceDate;
+
     doc.addPage(pw.Page(
       pageFormat: PdfPageFormat.a4,
-      margin: const pw.EdgeInsets.all(36),
+      margin: const pw.EdgeInsets.all(30),
       build: (pw.Context ctx) => pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-        pw.Header(level: 0, child: pw.Text('HÓA ĐƠN GIÁ TRỊ GIA TĂNG', style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold))),
+        // ── PART 1: COMPANY HEADER ──
+        pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+          pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+            pw.Text(_companyName, style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900)),
+            pw.SizedBox(height: 4),
+            pw.Text('Mã số thuế: $_companyTaxCode', style: const pw.TextStyle(fontSize: 10)),
+            pw.Text('Địa chỉ: $_companyAddress', style: const pw.TextStyle(fontSize: 10)),
+            pw.Text('Điện thoại: $_companyPhone', style: const pw.TextStyle(fontSize: 10)),
+            pw.Text('Số tài khoản: $_companyBankAccount', style: const pw.TextStyle(fontSize: 10)),
+          ]),
+        ]),
+        pw.Divider(color: PdfColors.blue900, thickness: 2),
+        pw.SizedBox(height: 10),
+
+        // ── PART 2: INVOICE TITLE ──
+        pw.Center(child: pw.Text('HÓA ĐƠN GIÁ TRỊ GIA TĂNG', style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold))),
         pw.SizedBox(height: 6),
-        pw.Text('Số hóa đơn: ${inv.invoiceNumber}', style: const pw.TextStyle(fontSize: 12)),
-        pw.Text('Ngày: ${Formatters.date(inv.invoiceDate)}', style: const pw.TextStyle(fontSize: 12)),
-        pw.Divider(),
-        pw.SizedBox(height: 8),
-        pw.Text('Nhà cung cấp: ${inv.vendor}'),
-        if (inv.vendorTaxCode != null) pw.Text('Mã số thuế: ${inv.vendorTaxCode}'),
-        pw.SizedBox(height: 16),
-        pw.Text('CHI TIẾT HÀNG HÓA', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
-        pw.SizedBox(height: 8),
-        if (inv.items.isNotEmpty)
-          pw.TableHelper.fromTextArray(
-            headers: ['Tên hàng hóa', 'SL', 'Đơn giá', 'Thành tiền'],
-            data: inv.items.map((i) => [i.name, '${i.quantity}', Formatters.currency(i.unitPrice), Formatters.currency(i.total)]).toList(),
-          ),
-        pw.SizedBox(height: 16),
-        pw.Divider(),
-        pw.Row(mainAxisAlignment: pw.MainAxisAlignment.end, children: [
+        pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
+          pw.Text(_formatFullDate(now), style: const pw.TextStyle(fontSize: 10)),
           pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.end, children: [
-            pw.Text('Tiền hàng: ${Formatters.currency(inv.subtotal)}'),
-            pw.Text('Thuế VAT (${inv.vatRate.label}): ${Formatters.currency(inv.vatAmount)}'),
-            pw.Text('TỔNG THANH TOÁN: ${Formatters.currency(inv.totalAmount)}',
-                style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 14)),
+            pw.Text('Ký hiệu: 1K22TAB', style: const pw.TextStyle(fontSize: 10)),
+            pw.Text('Số: ${inv.invoiceNumber}', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+          ]),
+        ]),
+        pw.SizedBox(height: 10),
+        pw.Divider(color: PdfColors.grey400),
+        pw.SizedBox(height: 8),
+
+        // ── PART 3: BUYER INFO ──
+        pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+          pw.Expanded(child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+            _labelValue('Họ tên người mua:', partner?.partnerName ?? 'N/A'),
+            _labelValue('Tên đơn vị:', partner?.partnerName ?? 'N/A'),
+            _labelValue('Địa chỉ:', partner?.address ?? 'N/A'),
+            _labelValue('Mã số thuế:', partner?.taxCode ?? 'N/A'),
+          ])),
+          pw.SizedBox(width: 20),
+          pw.Expanded(child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+            _labelValue('Hình thức thanh toán:', 'TM/CK'),
+            _labelValue('Số hợp đồng:', ''),
+            _labelValue('Loại tiền:', 'VND'),
+          ])),
+        ]),
+        pw.SizedBox(height: 10),
+        pw.Divider(color: PdfColors.grey400),
+        pw.SizedBox(height: 8),
+
+        // ── PART 4: ITEMS TABLE ──
+        pw.Text('CHI TIẾT HÀNG HÓA, DỊCH VỤ', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
+        pw.SizedBox(height: 6),
+        pw.TableHelper.fromTextArray(
+          headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9, color: PdfColors.white),
+          headerDecoration: const pw.BoxDecoration(color: PdfColors.blue900),
+          headerAlignment: pw.Alignment.center,
+          cellStyle: const pw.TextStyle(fontSize: 9),
+          cellAlignment: pw.Alignment.center,
+          cellAlignments: {0: pw.Alignment.center, 1: pw.Alignment.centerLeft, 2: pw.Alignment.center, 3: pw.Alignment.center, 4: pw.Alignment.centerRight, 5: pw.Alignment.centerRight},
+          border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
+          headerPadding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+          cellPadding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+          headers: ['STT', 'Tên hàng hóa, dịch vụ', 'ĐVT', 'Số lượng', 'Đơn giá', 'Thành tiền'],
+          columnWidths: {0: const pw.FlexColumnWidth(0.5), 1: const pw.FlexColumnWidth(3), 2: const pw.FlexColumnWidth(0.7), 3: const pw.FlexColumnWidth(0.7), 4: const pw.FlexColumnWidth(1.3), 5: const pw.FlexColumnWidth(1.5)},
+          data: inv.items.isNotEmpty
+              ? inv.items.asMap().entries.map((e) => [
+                    '${e.key + 1}',
+                    e.value.name,
+                    e.value.unit ?? 'cái',
+                    '${e.value.quantity}',
+                    Formatters.currency(e.value.unitPrice),
+                    Formatters.currency(e.value.total),
+                  ]).toList()
+              : List.generate(10, (i) => ['${i + 1}', '', '', '', '', '']),
+        ),
+        pw.SizedBox(height: 12),
+
+        // ── PART 5: TOTALS ──
+        pw.Container(
+          padding: const pw.EdgeInsets.all(10),
+          decoration: pw.BoxDecoration(border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5)),
+          child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.end, children: [
+            _totalRow('Cộng tiền hàng:', Formatters.currency(inv.subtotal)),
+            pw.SizedBox(height: 2),
+            _totalRow('Thuế suất GTGT (${inv.vatRate.label}):', ''),
+            _totalRow('Tiền thuế GTGT:', Formatters.currency(inv.vatAmount)),
+            pw.Divider(color: PdfColors.grey400),
+            _totalRow('TỔNG TIỀN THANH TOÁN:', Formatters.currency(inv.totalAmount), bold: true),
+            pw.SizedBox(height: 4),
+            pw.Align(
+              alignment: pw.Alignment.centerLeft,
+              child: pw.Text(
+                'Bằng chữ: ${_numberToWords(inv.totalAmount)}',
+                style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, fontStyle: pw.FontStyle.italic),
+              ),
+            ),
+          ]),
+        ),
+        pw.SizedBox(height: 20),
+
+        // ── PART 6: SIGNATURES ──
+        pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
+          pw.Column(children: [
+            pw.Text('Người mua hàng', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
+            pw.SizedBox(height: 4),
+            pw.Text('(Chữ ký số nếu có)', style: pw.TextStyle(fontSize: 8, color: PdfColors.grey600)),
+          ]),
+          pw.Column(children: [
+            pw.Text('Người bán hàng', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
+            pw.SizedBox(height: 4),
+            pw.Text('(Ký tên, đóng dấu)', style: pw.TextStyle(fontSize: 8, color: PdfColors.grey600)),
           ]),
         ]),
         pw.Spacer(),
-        pw.Divider(),
-        pw.Text('SmartFinance © ${DateTime.now().year} — Được tạo tự động', style: const pw.TextStyle(fontSize: 9)),
+
+        // ── PART 7: FOOTER ──
+        pw.Divider(color: PdfColors.grey400),
+        pw.Center(child: pw.Text(
+          'SmartFinance © ${DateTime.now().year} — Hóa đơn được tạo tự động',
+          style: pw.TextStyle(fontSize: 8, color: PdfColors.grey600),
+        )),
       ]),
     ));
     await Printing.layoutPdf(onLayout: (_) async => doc.save());
   }
+
+  static pw.Widget _labelValue(String label, String value) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(vertical: 2),
+      child: pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+        pw.SizedBox(width: 90, child: pw.Text(label, style: pw.TextStyle(fontSize: 9, color: PdfColors.grey700))),
+        pw.Expanded(child: pw.Text(value, style: const pw.TextStyle(fontSize: 9))),
+      ]),
+    );
+  }
+
+  static pw.Widget _totalRow(String label, String value, {bool bold = false}) {
+    return pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
+      pw.Text(label, style: pw.TextStyle(fontSize: 10, fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal)),
+      pw.Text(value, style: pw.TextStyle(fontSize: 10, fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal)),
+    ]);
+  }
+
+  static String _formatFullDate(DateTime dt) => 'Ngày ${dt.day} tháng ${dt.month} năm ${dt.year}';
 
   @override
   Widget build(BuildContext context) {
@@ -220,145 +280,91 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen>
         title: Text(inv.invoiceNumber),
         actions: [
           IconButton(icon: const Icon(Icons.picture_as_pdf, color: Colors.white), onPressed: _exportPdf, tooltip: 'Xuất PDF'),
-          if (inv.status == InvoiceStatus.reviewing && context.read<AuthProvider>().isAdmin)
-            TextButton.icon(
-              icon: const Icon(Icons.psychology, color: Colors.white),
-              label: const Text('Kiểm tra AI', style: TextStyle(color: Colors.white)),
-              onPressed: _checking ? null : _runAiCheck,
-            ),
         ],
       ),
-      body: _checking
-          ? Center(child: Padding(
-              padding: const EdgeInsets.all(32),
-              child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                const Text('AI đang phân tích hóa đơn...', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 24),
-                AnimatedBuilder(
-                  animation: _checkProgress,
-                  builder: (_, __) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    LinearProgressIndicator(value: _checkProgress.value, backgroundColor: Colors.grey.shade200, valueColor: const AlwaysStoppedAnimation(AppColors.accent), minHeight: 8, borderRadius: BorderRadius.circular(4)),
-                    const SizedBox(height: 16),
-                    ..._checkSteps.asMap().entries.map((e) {
-                      final done = e.key < (_checkProgress.value * _checkSteps.length).floor();
-                      final active = e.key == (_checkProgress.value * _checkSteps.length).floor().clamp(0, _checkSteps.length - 1);
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 4),
-                        child: Row(children: [
-                          Icon(done ? Icons.check : active ? Icons.radio_button_checked : Icons.radio_button_unchecked, size: 16, color: done ? AppColors.income : active ? AppColors.accent : Colors.grey),
-                          const SizedBox(width: 8),
-                          Text(e.value, style: TextStyle(color: done ? AppColors.income : active ? AppColors.primary : Colors.grey, fontSize: 13)),
-                        ]),
-                      );
-                    }),
-                  ]),
-                ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(color: statusColor.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(12), border: Border.all(color: statusColor.withValues(alpha: 0.3))),
+            child: Row(children: [
+              Icon(_statusIcon(inv.status), color: statusColor, size: 26),
+              const SizedBox(width: 10),
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(inv.status.label, style: TextStyle(color: statusColor, fontWeight: FontWeight.bold, fontSize: 15)),
               ]),
-            ))
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                // Status
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(color: statusColor.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(12), border: Border.all(color: statusColor.withValues(alpha: 0.3))),
-                  child: Row(children: [
-                    Icon(_statusIcon(inv.status), color: statusColor, size: 26),
-                    const SizedBox(width: 10),
-                    Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text(inv.status.label, style: TextStyle(color: statusColor, fontWeight: FontWeight.bold, fontSize: 15)),
-                      if (inv.aiConfidence != null)
-                        Text('Độ tin cậy: ${(inv.aiConfidence! * 100).toStringAsFixed(0)}%', style: TextStyle(color: statusColor, fontSize: 12)),
-                    ]),
-                  ]),
-                ),
-                const SizedBox(height: 14),
+            ]),
+          ),
+          const SizedBox(height: 14),
 
-                _Section('Thông tin hóa đơn', Column(children: [
-                  _InfoRow('Số hóa đơn', inv.invoiceNumber),
-                  _InfoRow('Nhà cung cấp', inv.vendor),
-                  if (inv.vendorTaxCode != null) _InfoRow('Mã số thuế', inv.vendorTaxCode!),
-                  _InfoRow('Ngày lập', Formatters.date(inv.invoiceDate)),
-                  if (inv.dueDate != null) _InfoRow('Hạn thanh toán', Formatters.date(inv.dueDate!)),
-                ])),
-                const SizedBox(height: 12),
+          _Section('Thông tin hóa đơn', Column(children: [
+            _InfoRow('Số hóa đơn', inv.invoiceNumber),
+            _InfoRow('Nhà cung cấp', inv.ocrText ?? 'Không rõ'),
+            _InfoRow('Ngày lập', Formatters.date(inv.invoiceDate)),
+            _InfoRow('Ghi chú', inv.note ?? ''),
+          ])),
+          const SizedBox(height: 12),
 
-                _Section('Chi tiết hóa đơn & VAT', Column(children: [
-                  if (inv.items.isNotEmpty) ...[
-                    ...inv.items.map((item) => Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 5),
-                      child: Row(children: [
-                        const Icon(Icons.circle, size: 5, color: AppColors.primary),
-                        const SizedBox(width: 8),
-                        Expanded(child: Text(item.name, style: const TextStyle(fontSize: 13))),
-                        Text('${item.quantity}x ${Formatters.shortAmount(item.unitPrice)}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                        const SizedBox(width: 8),
-                        Text(Formatters.currency(item.total), style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                      ]),
-                    )),
-                    const Divider(),
-                  ],
-                  _AmountRow('Tiền hàng (chưa VAT)', inv.subtotal, Colors.grey),
-                  _AmountRow('Thuế VAT (${inv.vatRate.label})', inv.vatAmount, AppColors.warning),
-                  _AmountRow('TỔNG THANH TOÁN', inv.totalAmount, AppColors.primary, bold: true),
-                ])),
-                const SizedBox(height: 12),
+          _Section('Chi tiết hóa đơn & VAT', Column(children: [
+            if (inv.items.isNotEmpty) ...[
+              ...inv.items.map((item) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 5),
+                child: Row(children: [
+                  const Icon(Icons.circle, size: 5, color: AppColors.primary),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(item.name, style: const TextStyle(fontSize: 13))),
+                  Text('${item.quantity}x ${Formatters.shortAmount(item.unitPrice)}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                  const SizedBox(width: 8),
+                  Text(Formatters.currency(item.total), style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                ]),
+              )),
+              const Divider(),
+            ],
+            _AmountRow('Tiền hàng (chưa VAT)', inv.subtotal, Colors.grey),
+            _AmountRow('Thuế VAT (${inv.vatRate.label})', inv.vatAmount, AppColors.warning),
+            _AmountRow('TỔNG THANH TOÁN', inv.totalAmount, AppColors.primary, bold: true),
+          ])),
+          const SizedBox(height: 12),
 
-                if (inv.aiNotes != null)
-                  _Section('Kết quả phân tích AI', Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    _ConfidenceBar(confidence: inv.aiConfidence!),
-                    const SizedBox(height: 12),
-                    Text(inv.aiNotes!, style: const TextStyle(fontSize: 13, height: 1.6)),
-                  ])),
+          if (inv.ocrText != null && inv.ocrText!.isNotEmpty)
+            _Section('Kết quả OCR', Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const SizedBox(height: 12),
+              Text(inv.ocrText!, style: const TextStyle(fontSize: 13, height: 1.6)),
+            ])),
 
-                if (inv.status == InvoiceStatus.pending) ...[
-                  const SizedBox(height: 16),
-                  SizedBox(width: double.infinity, child: ElevatedButton.icon(
-                    icon: const Icon(Icons.psychology),
-                    label: const Text('Chạy kiểm tra AI'),
-                    onPressed: _checking ? null : _runAiCheck,
-                  )),
-                ],
+          if (inv.status == InvoiceStatus.pending && context.read<AuthProvider>().isAdmin) ...[
+            const SizedBox(height: 16),
+            Row(children: [
+              Expanded(child: ElevatedButton.icon(
+                icon: const Icon(Icons.check_circle),
+                label: const Text('Duyệt'),
+                style: ElevatedButton.styleFrom(backgroundColor: AppColors.income, foregroundColor: Colors.white),
+                onPressed: () => _updateStatus(InvoiceStatus.approved),
+              )),
+              const SizedBox(width: 12),
+              Expanded(child: ElevatedButton.icon(
+                icon: const Icon(Icons.cancel),
+                label: const Text('Từ chối'),
+                style: ElevatedButton.styleFrom(backgroundColor: AppColors.expense, foregroundColor: Colors.white),
+                onPressed: () => _updateStatus(InvoiceStatus.rejected),
+              )),
+            ]),
+          ],
 
-                if (inv.status == InvoiceStatus.reviewing && context.read<AuthProvider>().isAdmin) ...[
-                  const SizedBox(height: 16),
-                  Row(children: [
-                    Expanded(child: ElevatedButton.icon(
-                      icon: const Icon(Icons.check_circle),
-                      label: const Text('Duyệt'),
-                      style: ElevatedButton.styleFrom(backgroundColor: AppColors.income, foregroundColor: Colors.white),
-                      onPressed: () => _updateStatus(InvoiceStatus.approved),
-                    )),
-                    const SizedBox(width: 12),
-                    Expanded(child: ElevatedButton.icon(
-                      icon: const Icon(Icons.cancel),
-                      label: const Text('Từ chối'),
-                      style: ElevatedButton.styleFrom(backgroundColor: AppColors.expense, foregroundColor: Colors.white),
-                      onPressed: () => _updateStatus(InvoiceStatus.rejected),
-                    )),
-                  ]),
-                ],
-                const SizedBox(height: 24),
-              ]),
-            ),
+          const SizedBox(height: 24),
+        ]),
+      ),
     );
   }
-
-  static const _checkSteps = [
-    'Đọc thông tin hóa đơn...',
-    'Xác minh nhà cung cấp...',
-    'Kiểm tra số tiền & mặt hàng...',
-    'Phân tích rủi ro...',
-    'Tổng hợp kết quả...',
-  ];
 
   Color _statusColor(InvoiceStatus s) {
     switch (s) {
       case InvoiceStatus.approved: return AppColors.income;
       case InvoiceStatus.rejected: return AppColors.expense;
-      case InvoiceStatus.reviewing: return AppColors.warning;
-      case InvoiceStatus.pending: return Colors.grey;
+      case InvoiceStatus.draft: return Colors.grey;
+      case InvoiceStatus.pending: return AppColors.warning;
     }
   }
 
@@ -366,7 +372,7 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen>
     switch (s) {
       case InvoiceStatus.approved: return Icons.check_circle;
       case InvoiceStatus.rejected: return Icons.cancel;
-      case InvoiceStatus.reviewing: return Icons.autorenew;
+      case InvoiceStatus.draft: return Icons.edit_note;
       case InvoiceStatus.pending: return Icons.hourglass_empty;
     }
   }
@@ -408,36 +414,4 @@ class _AmountRow extends StatelessWidget {
       Text(Formatters.currency(amount), style: TextStyle(fontWeight: bold ? FontWeight.bold : FontWeight.w600, color: color, fontSize: bold ? 15 : 13)),
     ]),
   );
-}
-
-class _ConfidenceBar extends StatelessWidget {
-  final double confidence;
-  const _ConfidenceBar({required this.confidence});
-  @override
-  Widget build(BuildContext context) {
-    final color = confidence >= 0.70 ? AppColors.income : confidence >= 0.40 ? AppColors.warning : AppColors.expense;
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Row(children: [
-        Text('Độ tin cậy AI:', style: TextStyle(color: color, fontWeight: FontWeight.bold)),
-        const Spacer(),
-        Text('${(confidence * 100).toStringAsFixed(0)}%', style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 16)),
-      ]),
-      const SizedBox(height: 6),
-      TweenAnimationBuilder<double>(
-        tween: Tween(begin: 0, end: confidence),
-        duration: const Duration(milliseconds: 800),
-        builder: (_, v, __) => ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: LinearProgressIndicator(value: v, backgroundColor: Colors.grey.shade200, valueColor: AlwaysStoppedAnimation(color), minHeight: 10),
-        ),
-      ),
-    ]);
-  }
-}
-
-class _AiResult {
-  final double confidence;
-  final InvoiceStatus status;
-  final String notes;
-  const _AiResult({required this.confidence, required this.status, required this.notes});
 }

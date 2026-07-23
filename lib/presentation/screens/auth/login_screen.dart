@@ -124,17 +124,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 14),
 
-                  // Register link
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Text('Chưa có tài khoản? ', style: TextStyle(color: Colors.grey)),
-                      TextButton(
-                        onPressed: () => context.go('/register'),
-                        child: const Text('Đăng ký ngay'),
-                      ),
-                    ],
-                  ),
+
                 ],
               ),
             ),
